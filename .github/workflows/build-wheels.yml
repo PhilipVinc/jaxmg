@@ -93,7 +93,10 @@ jobs:
             CUDAToolkit_ROOT=/usr/local/cuda
             CUDACXX=/usr/local/cuda/bin/nvcc
             CMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc
-            PATH=/usr/local/cuda/bin:$PATH
+            CC=/opt/rh/gcc-toolset-11/root/usr/bin/gcc
+            CXX=/opt/rh/gcc-toolset-11/root/usr/bin/g++
+            CUDAHOSTCXX=/opt/rh/gcc-toolset-11/root/usr/bin/g++
+            PATH=/opt/rh/gcc-toolset-11/root/usr/bin:/usr/local/cuda/bin:$PATH
             LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 
           # Prepare build prerequisites inside each environment
