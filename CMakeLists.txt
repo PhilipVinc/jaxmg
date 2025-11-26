@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 project(JaxSolve)
 
+include(GNUInstallDirs)
+
 # Get CPM
 set(CPM_DOWNLOAD_VERSION 0.42.0)
 set(CPM_DOWNLOAD_LOCATION "${CMAKE_BINARY_DIR}/cmake/CPM_${CPM_DOWNLOAD_VERSION}.cmake")
@@ -64,25 +66,28 @@ message(STATUS "XLA source directory: ${XLA_SOURCE_DIR}")
 
 # Since jaxlib is asking for #include "third_party/gpus/cuda/extras/CUPTI/include/cupti.h"
 # we need to create a symlink to to CUDA_HOME and pretend it can be accessed from third_party
-# Create the target directory
-file(MAKE_DIRECTORY ${CMAKE_SOURCE_DIR}/third_party/gpus)
+# Create the target directory in the build tree
+set(JAXMG_BINARY_ROOT ${PROJECT_BINARY_DIR})
+set(JAXMG_THIRD_PARTY_ROOT ${JAXMG_BINARY_ROOT}/third_party)
+set(JAXMG_XLA_ROOT ${JAXMG_BINARY_ROOT}/xla)
+file(MAKE_DIRECTORY ${JAXMG_THIRD_PARTY_ROOT}/gpus)
 execute_process(
-    COMMAND ln -sfn $ENV{CUDA_ROOT} ${CMAKE_SOURCE_DIR}/third_party/gpus/cuda
+    COMMAND ln -sfn $ENV{CUDA_ROOT} ${JAXMG_THIRD_PARTY_ROOT}/gpus/cuda
     RESULT_VARIABLE ln_result
 )
 if(NOT ln_result EQUAL 0)
     message(FATAL_ERROR "Failed to create symlink for CUDA: $ENV{CUDA_ROOT}")
 endif()
 execute_process(
-    COMMAND ln -sfn $ENV{CUDNN_ROOT}/include ${CMAKE_SOURCE_DIR}/third_party/gpus/cudnn
+    COMMAND ln -sfn $ENV{CUDNN_ROOT}/include ${JAXMG_THIRD_PARTY_ROOT}/gpus/cudnn
     RESULT_VARIABLE ln_result
 )
 if(NOT ln_result EQUAL 0)
     message(FATAL_ERROR "Failed to create symlink for CUDNN: $ENV{CUDNN_ROOT}/include")
 endif()
-file(MAKE_DIRECTORY ${CMAKE_SOURCE_DIR}/xla/ffi)
+file(MAKE_DIRECTORY ${JAXMG_XLA_ROOT}/ffi)
 execute_process(
-    COMMAND ln -sfn ${XLA_SOURCE_DIR}/xla/ffi/api ${CMAKE_SOURCE_DIR}/xla/ffi
+    COMMAND ln -sfn ${XLA_SOURCE_DIR}/xla/ffi/api ${JAXMG_XLA_ROOT}/ffi/api
     RESULT_VARIABLE ln_result
 )
 
@@ -135,12 +140,12 @@ add_library(syevd_no_V SHARED
 # Make sure we can see "thirdparty/gpus" and jax
 set(SRC_CUDA_INCLUDE ${CMAKE_SOURCE_DIR}/src/cuda/include)
 set(SRC_CUDA_ROOT ${CMAKE_SOURCE_DIR}/src/cuda)
-target_include_directories(cyclic PUBLIC ${CMAKE_SOURCE_DIR} ${jax_SOURCE_DIR} ${SRC_CUDA_INCLUDE} ${SRC_CUDA_ROOT})
-target_include_directories(potrs PUBLIC ${CMAKE_SOURCE_DIR} ${jax_SOURCE_DIR} ${SRC_CUDA_INCLUDE} ${SRC_CUDA_ROOT})
-target_include_directories(potrs_mp PUBLIC ${CMAKE_SOURCE_DIR} ${jax_SOURCE_DIR} ${SRC_CUDA_INCLUDE} ${SRC_CUDA_ROOT})
-target_include_directories(potri PUBLIC ${CMAKE_SOURCE_DIR} ${jax_SOURCE_DIR} ${SRC_CUDA_INCLUDE} ${SRC_CUDA_ROOT})
-target_include_directories(syevd PUBLIC ${CMAKE_SOURCE_DIR} ${jax_SOURCE_DIR} ${SRC_CUDA_INCLUDE} ${SRC_CUDA_ROOT})
-target_include_directories(syevd_no_V PUBLIC ${CMAKE_SOURCE_DIR} ${jax_SOURCE_DIR} ${SRC_CUDA_INCLUDE} ${SRC_CUDA_ROOT})
+target_include_directories(cyclic PUBLIC ${CMAKE_SOURCE_DIR} ${PROJECT_BINARY_DIR} ${jax_SOURCE_DIR} ${SRC_CUDA_INCLUDE} ${SRC_CUDA_ROOT})
+target_include_directories(potrs PUBLIC ${CMAKE_SOURCE_DIR} ${PROJECT_BINARY_DIR} ${jax_SOURCE_DIR} ${SRC_CUDA_INCLUDE} ${SRC_CUDA_ROOT})
+target_include_directories(potrs_mp PUBLIC ${CMAKE_SOURCE_DIR} ${PROJECT_BINARY_DIR} ${jax_SOURCE_DIR} ${SRC_CUDA_INCLUDE} ${SRC_CUDA_ROOT})
+target_include_directories(potri PUBLIC ${CMAKE_SOURCE_DIR} ${PROJECT_BINARY_DIR} ${jax_SOURCE_DIR} ${SRC_CUDA_INCLUDE} ${SRC_CUDA_ROOT})
+target_include_directories(syevd PUBLIC ${CMAKE_SOURCE_DIR} ${PROJECT_BINARY_DIR} ${jax_SOURCE_DIR} ${SRC_CUDA_INCLUDE} ${SRC_CUDA_ROOT})
+target_include_directories(syevd_no_V PUBLIC ${CMAKE_SOURCE_DIR} ${PROJECT_BINARY_DIR} ${jax_SOURCE_DIR} ${SRC_CUDA_INCLUDE} ${SRC_CUDA_ROOT})
 
 # Set the CUDA architecture
 set_target_properties(cyclic PROPERTIES
@@ -219,24 +224,31 @@ target_link_libraries(syevd_no_V
     ${CUSOLVERMG_LIB}
     cuda
 )
+
+if(DEFINED SKBUILD_PLATLIB_DIR)
+    set(JAXMG_INSTALL_LIB_DIR "${SKBUILD_PLATLIB_DIR}/jaxmg/bin")
+else()
+    set(JAXMG_INSTALL_LIB_DIR "${CMAKE_INSTALL_LIBDIR}/jaxmg/bin")
+endif()
+
 # Make install targets
 install(TARGETS cyclic
-    LIBRARY DESTINATION ${CMAKE_SOURCE_DIR}/src/jaxmg/bin
+    LIBRARY DESTINATION ${JAXMG_INSTALL_LIB_DIR}
 )
 install(TARGETS potrs
-    LIBRARY DESTINATION ${CMAKE_SOURCE_DIR}/src/jaxmg/bin
+    LIBRARY DESTINATION ${JAXMG_INSTALL_LIB_DIR}
 )
 install(TARGETS potrs_mp
-    LIBRARY DESTINATION ${CMAKE_SOURCE_DIR}/src/jaxmg/bin
+    LIBRARY DESTINATION ${JAXMG_INSTALL_LIB_DIR}
 )
 install(TARGETS potri
-    LIBRARY DESTINATION ${CMAKE_SOURCE_DIR}/src/jaxmg/bin
+    LIBRARY DESTINATION ${JAXMG_INSTALL_LIB_DIR}
 )
 install(TARGETS syevd
-    LIBRARY DESTINATION ${CMAKE_SOURCE_DIR}/src/jaxmg/bin
+    LIBRARY DESTINATION ${JAXMG_INSTALL_LIB_DIR}
 )
 install(TARGETS syevd_no_V
-    LIBRARY DESTINATION ${CMAKE_SOURCE_DIR}/src/jaxmg/bin
+    LIBRARY DESTINATION ${JAXMG_INSTALL_LIB_DIR}
 )
 
 # module load gcc/11.5.0 cudnn/9.2.0.82-12 cuda/12.8.0
@@ -249,4 +261,3 @@ install(TARGETS syevd_no_V
 # cmake --build . --target potri && cmake --install .
 # cmake --build . --target syevd && cmake --install .
 # cmake --build . --target syevd_no_V && cmake --install .
-

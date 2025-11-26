@@ -90,36 +90,18 @@ jobs:
           CIBW_ENVIRONMENT: |
             CUDA_ROOT=/usr/local/cuda
             CUDNN_ROOT=/usr
+            CUDAToolkit_ROOT=/usr/local/cuda
             PATH=/usr/local/cuda/bin:$PATH
             LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 
-          # Build the CUDA libraries before building the wheel
+          # Prepare build prerequisites inside each environment
           CIBW_BEFORE_BUILD: |
             set -ex
 
             # Enable GCC 11
             source /opt/rh/gcc-toolset-11/enable
 
-            # Set environment variables
-            export CUDA_ROOT=/usr/local/cuda
-            export CUDNN_ROOT=/usr
-            export PATH=/usr/local/cuda/bin:$PATH
-            export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
-
-            # Create required symlinks for JAX build (JAX expects CUDA at third_party/gpus/cuda)
-            mkdir -p third_party/gpus
-            ln -sfn /usr/local/cuda third_party/gpus/cuda
-            ls -la third_party/gpus/
-
-            # Build using CMake
-            mkdir -p build
-            cd build
-            cmake3 -DCMAKE_BUILD_TYPE=Release ..
-            cmake3 --build . --target install -- -j$(nproc)
-            cd ..
-
-            # Verify the shared libraries were built
-            ls -la src/jaxmg/bin/
+            python -m pip install --upgrade pip
 
           # Custom auditwheel repair to exclude CUDA libraries
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: |

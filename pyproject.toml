@@ -1,6 +1,10 @@
 [build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
+requires = [
+    "scikit-build-core>=0.10.0",
+    "cmake>=3.16",
+    "ninja>=1.10",
+]
+build-backend = "scikit_build_core.build"
 
 [project]
 name = "jaxmg"
@@ -9,19 +13,6 @@ description = "Python wrapper around cuSolverMg with JAX support"
 authors = [{ name = "Roeland Wiersema" }]
 dependencies = ["pytest==8.2.1", "matplotlib>=3.10.3"]
 requires-python = ">=3.11"
-
-[tool.setuptools.packages.find]
-where = ["src"]
-
-[tool.setuptools.package-data]
-jaxmg = [
-    "bin/libcyclic.so",
-    "bin/libpotrs.so",
-    "bin/libpotrs_mp.so",
-    "bin/libpotri.so",
-    "bin/libsyevd.so",
-    "bin/libsyevd_no_V.so",
-]
 
 [project.optional-dependencies]
 
@@ -34,6 +25,23 @@ docs = [
     "mkdocs-exclude==1.0.2",
     "mkdocs-ipynb==0.1.1",
     "hippogriffe==0.2.2",
+]
+
+[tool.scikit-build]
+cmake.minimum-version = "3.16"
+cmake.build-type = "Release"
+wheel.packages = ["src/jaxmg"]
+build-dir = "build/{wheel_tag}"
+sdist.include = [
+    "CMakeLists.txt",
+    "FindCUDNN.cmake",
+    "src/cuda/**",
+    "src/jaxmg/**",
+    "README.md",
+    "LICENSE",
+]
+sdist.exclude = [
+    "src/jaxmg/bin/*.so",
 ]
 
 [tool.cibuildwheel]

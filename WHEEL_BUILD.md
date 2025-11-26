@@ -4,7 +4,7 @@ This document explains how to build distributable wheels for jaxmg with CUDA sup
 
 ## Overview
 
-The project uses `cibuildwheel` to build manylinux wheels with pre-compiled CUDA libraries. This allows users to install jaxmg without needing to compile the CUDA code themselves.
+The project uses `scikit-build-core` with a CMake build to compile the native CUDA libraries during wheel builds, driven by `cibuildwheel`. Wheels ship the freshly built `.so` artifacts so users do not need to compile CUDA code locally.
 
 ## CI Build Process
 
@@ -17,8 +17,8 @@ Wheels are automatically built on GitHub Actions when:
 
 1. **Sets up build environment**: Uses manylinux_2_28 Docker image with GCC 11
 2. **Installs CUDA Toolkit 12.8** and cuDNN 9.2
-3. **Compiles CUDA libraries**: Runs CMake to build the 6 shared libraries (.so files)
-4. **Creates wheels**: Packages the compiled libraries with the Python code
+3. **Compiles CUDA libraries**: Uses scikit-build-core+CMake to build the 6 shared libraries (.so files)
+4. **Creates wheels**: Packages the compiled libraries with the Python code (no vendored binaries in the repo)
 5. **Repairs wheels**: Uses auditwheel to create manylinux-compliant wheels, excluding CUDA runtime libraries
 6. **Uploads artifacts**: Wheels are uploaded as GitHub Actions artifacts (30-day retention)
 

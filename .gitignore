@@ -8,6 +8,7 @@ __pycache__/
 *.pyo
 *.pyd
 .Python
+src/jaxmg/bin/*.so
 
 # CMake
 CMakeCache.txt
