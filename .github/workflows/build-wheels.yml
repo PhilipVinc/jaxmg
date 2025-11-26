@@ -96,6 +96,7 @@ jobs:
             CC=/opt/rh/gcc-toolset-11/root/usr/bin/gcc
             CXX=/opt/rh/gcc-toolset-11/root/usr/bin/g++
             CUDAHOSTCXX=/opt/rh/gcc-toolset-11/root/usr/bin/g++
+            CMAKE_ARGS="-DCMAKE_C_COMPILER=/opt/rh/gcc-toolset-11/root/usr/bin/gcc -DCMAKE_CXX_COMPILER=/opt/rh/gcc-toolset-11/root/usr/bin/g++ -DCMAKE_CUDA_HOST_COMPILER=/opt/rh/gcc-toolset-11/root/usr/bin/g++ -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc"
             PATH=/opt/rh/gcc-toolset-11/root/usr/bin:/usr/local/cuda/bin:$PATH
             LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 
