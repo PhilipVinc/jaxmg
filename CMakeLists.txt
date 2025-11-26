@@ -19,6 +19,9 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # Avoid GPU detection in CI by building for all supported architectures
 # Build for a fixed set of GPU architectures to avoid runtime detection in CI
 set(CMAKE_CUDA_ARCHITECTURES "70;75;80;86;90")
+if(NOT DEFINED CMAKE_CUDA_COMPILER)
+    set(CMAKE_CUDA_COMPILER "/usr/local/cuda/bin/nvcc")
+endif()
 
 # Static linking against C++20 standard library
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
