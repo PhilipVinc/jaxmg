@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.16)
 project(JaxSolve)
 
+if(EXISTS "/opt/rh/gcc-toolset-11/root/usr/bin/gcc")
+    set(CMAKE_C_COMPILER "/opt/rh/gcc-toolset-11/root/usr/bin/gcc" CACHE FILEPATH "" FORCE)
+    set(CMAKE_CXX_COMPILER "/opt/rh/gcc-toolset-11/root/usr/bin/g++" CACHE FILEPATH "" FORCE)
+endif()
+
 include(GNUInstallDirs)
 
 # Get CPM
