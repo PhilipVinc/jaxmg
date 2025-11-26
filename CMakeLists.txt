@@ -17,7 +17,8 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # Avoid GPU detection in CI by building for all supported architectures
-set(CMAKE_CUDA_ARCHITECTURES "all")
+# Build for a fixed set of GPU architectures to avoid runtime detection in CI
+set(CMAKE_CUDA_ARCHITECTURES "70;75;80;86;90")
 
 # Static linking against C++20 standard library
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
