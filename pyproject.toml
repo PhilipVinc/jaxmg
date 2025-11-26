@@ -26,7 +26,7 @@ docs = [
 ]
 
 [tool.scikit-build]
-cmake.version = "3.16"
+cmake.version = ">=3.16"
 cmake.build-type = "Release"
 wheel.packages = ["src/jaxmg"]
 build-dir = "build/{wheel_tag}"
