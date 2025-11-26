@@ -22,6 +22,8 @@ set(CMAKE_CUDA_ARCHITECTURES "70;75;80;86;90")
 if(NOT DEFINED CMAKE_CUDA_COMPILER)
     set(CMAKE_CUDA_COMPILER "/usr/local/cuda/bin/nvcc")
 endif()
+# Allow newer host compilers when nvcc performs version checks
+set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --allow-unsupported-compiler")
 
 # Static linking against C++20 standard library
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
