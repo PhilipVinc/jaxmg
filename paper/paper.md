@@ -52,7 +52,7 @@ compilation and automatic differentiation. The JAX ecosystem has expanded rapidl
 variational Monte Carlo [@netket3:2022],
 and full physics simulation environments [@brax2021github]. These workflows
 frequently solve linear systems or compute eigendecompositions, either inside a
-larger simulation loop or inside differentiable optimization, and matrix size often limits the scale of feasible simulations. Within the JAX ecosystem, Lineax [@lineax2023] provides composable linear-operator abstractions and direct and iterative solvers.
+larger simulation loop or inside differentiable optimization, and matrix size often limits the scale of feasible simulations.
 
 Despite this growth, the ecosystem still lacks distributed dense linear
 solver routines that scale across multiple GPUs while remaining usable
@@ -60,7 +60,11 @@ from idiomatic JAX programs. A dedicated backend package makes this integration 
 
 # State of the field
 
-Distributed dense linear algebra is supported by several established libraries. ScaLAPACK [@blackford1997scalapack] provides distributed factorizations for CPU clusters, SLATE [@gates2019slate] targets distributed systems with hardware accelerators, and MAGMA [@abdelfattah2024magma] provides algorithms for heterogeneous CPU–GPU systems. NVIDIA’s cuSOLVERMp [@cusolver] supplies distributed dense solvers for multi-GPU and multi-node execution. Their native C, C++, or Fortran interfaces, together with their execution models and data-layout requirements, complicate integration into Python-based scientific workflows.
+Within the JAX ecosystem, Lineax [@lineax2023] provides composable linear-operator abstractions and a range of direct and iterative solvers. However, its dense factorizations do not extend across multiple GPUs and therefore remain limited by single-device memory. Scaling these operations beyond a single device consequently requires turning to distributed dense linear-algebra libraries outside the JAX ecosystem.
+
+ScaLAPACK [@blackford1997scalapack] provides distributed factorizations for CPU clusters, SLATE [@gates2019slate] targets distributed systems with hardware accelerators, and MAGMA [@abdelfattah2024magma] provides algorithms for heterogeneous CPU–GPU systems. NVIDIA’s cuSOLVERMp [@cusolver] supplies distributed dense solvers for multi-GPU and multi-node execution. However, their native C, C++, or Fortran interfaces, together with their execution models and data-layout requirements, complicate integration into Python-based scientific workflows.
+
+JAXMg bridges these approaches by combining idiomatic, JIT-compatible JAX integration with scalable multi-GPU and multi-node dense solvers.
 
 # Software design
 
@@ -103,12 +107,13 @@ Simply pass JAXMg an ordinary JAX array sharded over a two-dimensional device me
 
 JAXMg is integrated into NetKet [@netket3:2022], one of the most widely used open-source frameworks for variational Monte Carlo, where it backs the distributed linear solve at the heart of stochastic reconfiguration [@sorella1998green]. Distributing it removes the ceiling on how large an ansatz NetKet users can optimize. Additionally, JAXMg produced the time-dependent variational Monte Carlo [@Carleo2017;@Schmitt2020QuantumDynamics] results of
 [@Wiersema2026,@Wan2026BlurredSampling]. A future release of jVMC [@jVMC],
-will also feature support for JAXMg. In a series of benchmark experiments, we also evaluate the power of JAXMg scalability by investigating the currently implemented routines across a large number of GPUs. As a highlight, we perform a successful Cholesky solve of a float32 matrix of size $1.5\times10^6 \times 1.5\times10^6$ across 64 NVIDIA H200s in approximately 11 minutes [@jaxmg_benchmark].
+will also feature support for JAXMg.
 
-**21-cm results**
-[@gueuning2026mutual]. 
+JAXMg is also being used to scale BayesEoR (Tutt et al., in prep.), a Bayesian forward-modelling framework for 21-cm power-spectrum recovery with next-generation interferometric experiments [@sims2024bayeseor;@bull2026foregroundcharacterizationmitigationobservations]. As identified by @burba2023allsky, unbiased power-spectrum recovery requires the uncertainty associated with wide-field foreground effects to be fully propagated, rapidly inflating the nuisance parameterisation to $\mathcal{O}(10^6)$ coefficients. JAXMg's distributed routines enable the construction of a statistically optimal reduced KL basis of $\mathcal{O}(10^3)$ modes [@shaw2014allsky] and, through analytical marginalisation of the likelihood, collapse the inference to just $\mathcal{O}(10^1)$ sampled power-spectrum parameters. Access to the Bayesian evidence through integration with nested sampling [@skilling2006nested;@yallup2026nestedslicesamplingvectorized] thus enables robust statistical validation through model comparison, which is vital in the low-signal-to-noise, highly degenerate regime characteristic of 21-cm cosmology.
 
-We envision future scientific applications in areas such as Bayesian inference [@liu2026gpr;@burba2023allsky], tensor networks [@schollwock2011density;@banuls2023tensor], computational electromagnetics [@Harrington1993;@gueuning2026mutual].
+In a series of benchmark experiments, we also evaluate the power of JAXMg scalability by investigating the currently implemented routines across a large number of GPUs. As a highlight, we perform a successful Cholesky solve of a float32 matrix of size $1.5\times10^6 \times 1.5\times10^6$ across 64 NVIDIA H200s in approximately 11 minutes [@jaxmg_benchmark].
+
+We envision future scientific applications in areas such as Bayesian inference [@cabezas2024blackjax], Gaussian processes [@pinder2022gpjax], tensor networks [@schollwock2011density;@banuls2023tensor], and computational electromagnetics [@Harrington1993;@gueuning2026mutual].
 
 # AI usage disclosure
 
