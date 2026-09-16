@@ -30,6 +30,8 @@ reduce memory use.
   `lu_solve`.
 - [Least-squares solve](least_squares.md) solves an overdetermined rectangular
   system with `least_squares`.
+- [Reduced QR decomposition](qr.md) computes an orthonormal basis and
+  upper-triangular factor with `qr`.
 - [Symmetric or Hermitian eigensolve](syevd.md) computes eigenvalues and
   optional eigenvectors with `syevd`.
 - [Singular-value decomposition](gesvd.md) computes the singular values and

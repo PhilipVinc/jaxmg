@@ -315,6 +315,9 @@ differences are the cuSOLVERMp call sequence and solver workspace:
 - `least_squares` calls `cusolverMpGels`. The solve input has $M$ rows on entry
   and is overwritten in place, with the $N$ solution rows restored to their
   original JAX-facing sharding.
+- `qr` calls `cusolverMpGeqrf`, copies the distributed upper triangle into the
+  $R$ output, and calls `cusolverMpOrgqr` to overwrite the donated input with
+  reduced $Q$. Both factors are then reverse-redistributed.
 - `syevd` calls `cusolverMpSyevd`. Its eigenvector-producing mode materializes a
   full distributed eigenvector matrix and reverses the redistribution for that
   output. Its eigenvalues-only mode omits both operations.
@@ -366,6 +369,7 @@ Native C++/CUDA is responsible for:
 |[src/cuda/cusolvermp_routines/potrs_logdet.cu.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/potrs_logdet.cu.cc) |
 |[src/cuda/cusolvermp_routines/cusolvermp_lu_solve.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_lu_solve.cc) |
 |[src/cuda/cusolvermp_routines/cusolvermp_gels.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_gels.cc) |
+|[src/cuda/cusolvermp_routines/cusolvermp_qr.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_qr.cc) |
 |[src/cuda/cusolvermp_routines/cusolvermp_syevd.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_syevd.cc) |
 |[src/cuda/cusolvermp_routines/cusolvermp_gesvd.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_gesvd.cc) |
 |[src/cuda/cusolvermp_routines/cusolvermp_polar.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_polar.cc) |

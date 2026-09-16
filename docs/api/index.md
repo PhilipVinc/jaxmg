@@ -56,6 +56,20 @@ $$
 
 ---
 
+## `qr`
+
+Compute the reduced QR decomposition of a tall or square matrix:
+
+$$
+A = Q R, \qquad Q^{\dagger}Q=I,
+$$
+
+where $Q$ is $M\times N$ and $R$ is $N\times N$ and upper triangular.
+
+[`qr` API and usage](qr.md)
+
+---
+
 ## `syevd`
 
 Multi-GPU eigensolver for symmetric (Hermitian) matrices.
