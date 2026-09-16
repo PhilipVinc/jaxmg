@@ -319,6 +319,9 @@ differences are the cuSOLVERMp call sequence and solver workspace:
   selected independently in reduced or full form, and only requested vector
   matrices are allocated and reverse-redistributed. The shared scratch buffer
   is sized to the largest requirement among A and those outputs.
+- `polar` calls `cusolverMpPolar` for tall or square matrices. A is overwritten
+  by the polar factor, while the optional H matrix is allocated and
+  reverse-redistributed only when requested.
 
 ## Python and native responsibilities
 
@@ -361,3 +364,4 @@ Native C++/CUDA is responsible for:
 |[src/cuda/cusolvermp_routines/cusolvermp_lu_solve.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_lu_solve.cc) |
 |[src/cuda/cusolvermp_routines/cusolvermp_syevd.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_syevd.cc) |
 |[src/cuda/cusolvermp_routines/cusolvermp_gesvd.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_gesvd.cc) |
+|[src/cuda/cusolvermp_routines/cusolvermp_polar.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_polar.cc) |

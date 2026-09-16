@@ -92,6 +92,20 @@ _PRODUCTION_FFI_TARGETS = (
             "execute": "XlaCusolverMpGesvdValuesFFI",
         },
     ),
+    (
+        "cusolvermp_polar_uh",
+        {
+            "prepare": "XlaCusolverMpPolarPrepareFFI",
+            "execute": "XlaCusolverMpPolarUhFFI",
+        },
+    ),
+    (
+        "cusolvermp_polar_u",
+        {
+            "prepare": "XlaCusolverMpPolarPrepareFFI",
+            "execute": "XlaCusolverMpPolarUFFI",
+        },
+    ),
 )
 
 if not sys.platform.startswith("linux"):

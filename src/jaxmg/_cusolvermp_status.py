@@ -6,7 +6,7 @@ public JAXMg API, but Python must still declare their fixed lengths when it
 builds the corresponding ``jax.ffi.ffi_call`` result types.
 
 The field order and vector lengths must match the corresponding POTRS,
-LU-solve, SYEVD, and GESVD status writers in
+LU-solve, SYEVD, GESVD, and polar status writers in
 ``src/cuda/cusolvermp_routines``.
 """
 
@@ -196,7 +196,46 @@ _CUSOLVERMP_GESVD_STATUS_FIELDS = (
 )
 
 
+# Mirrors kPolarStatusSize/status_words in
+# src/cuda/cusolvermp_routines/cusolvermp_polar.cc.
+_CUSOLVERMP_POLAR_STATUS_FIELDS = (
+    "status_code",
+    "cuda_device",
+    "nccl_rank",
+    "nccl_rank_count",
+    "process_rows",
+    "process_cols",
+    "cusolvermp_version",
+    "cusolvermp_runtime_available",
+    "handle_created",
+    "grid_created",
+    "a_descriptor_created",
+    "raw_cusolver_status",
+    "a_size_bytes",
+    "m",
+    "n",
+    "tile_size",
+    "a_local_rows",
+    "a_local_cols",
+    "a_numroc_rows",
+    "a_numroc_cols",
+    "compute_h",
+    "h_descriptor_created",
+    "h_numroc_rows",
+    "h_numroc_cols",
+    "polar_device_workspace_kib",
+    "polar_host_workspace_kib",
+    "polar_called",
+    "polar_info",
+    "dtype_code",
+    "grid_mapping",
+    "reserved_0",
+    "reserved_1",
+)
+
+
 _CUSOLVERMP_POTRS_STATUS_SIZE = len(_CUSOLVERMP_POTRS_STATUS_FIELDS)
 _CUSOLVERMP_LU_SOLVE_STATUS_SIZE = len(_CUSOLVERMP_LU_SOLVE_STATUS_FIELDS)
 _CUSOLVERMP_SYEVD_STATUS_SIZE = len(_CUSOLVERMP_SYEVD_STATUS_FIELDS)
 _CUSOLVERMP_GESVD_STATUS_SIZE = len(_CUSOLVERMP_GESVD_STATUS_FIELDS)
+_CUSOLVERMP_POLAR_STATUS_SIZE = len(_CUSOLVERMP_POLAR_STATUS_FIELDS)
