@@ -14,8 +14,8 @@
 //
 // Shared cuSOLVERMp runtime helpers.
 //
-// This header defines the shared boundary between the fused POTRS, LU, SYEVD,
-// and GESVD handlers and the cuSOLVERMp runtime. It contains the status
+// This header defines the shared boundary between the fused solver handlers and
+// the cuSOLVERMp runtime. It contains the status
 // schemas, process-grid validation, typed cuSOLVERMp entry points, and CUDA/XLA
 // utility declarations used by each solver. Solver orchestration remains in
 // the corresponding solver source file.
@@ -75,6 +75,9 @@ struct CusolverMpApi {
   decltype(&cusolverMpGesvd_bufferSize) gesvd_buffer_size =
       &cusolverMpGesvd_bufferSize;
   decltype(&cusolverMpGesvd) gesvd = &cusolverMpGesvd;
+  decltype(&cusolverMpPolar_bufferSize) polar_buffer_size =
+      &cusolverMpPolar_bufferSize;
+  decltype(&cusolverMpPolar) polar = &cusolverMpPolar;
 };
 
 // Native status codes returned through the small device status vectors.
@@ -132,12 +135,16 @@ enum CusolverMpStatusCode : int32_t {
   kGesvdInfoNonzero = 46,
   kGesvdDescriptorDestroyFailed = 47,
   kGesvdDescriptorQueryFailed = 48,
+  kPolarWorkspaceFailed = 49,
+  kPolarFailed = 50,
+  kPolarInfoNonzero = 51,
 };
 
 inline constexpr int kPotrsStatusSize = 40;
 inline constexpr int kLuSolveStatusSize = 41;
 inline constexpr int kSyevdStatusSize = 36;
 inline constexpr int kGesvdStatusSize = 42;
+inline constexpr int kPolarStatusSize = 32;
 inline constexpr cusolverMpGridMapping_t kCusolverMpGridMappingRowMajor =
     CUSOLVERMP_GRID_MAPPING_ROW_MAJOR;
 inline constexpr cusolverMpGridMapping_t kCusolverMpGridMappingColMajor =
@@ -200,6 +207,12 @@ absl::Status CopySyevdStatusToDevice(
 // status output.
 absl::Status CopyGesvdStatusToDevice(
     se::Stream* stream, const std::array<int32_t, kGesvdStatusSize>& status,
+    ffi::Result<ffi::BufferR1<S32>> out);
+
+// Copies a polar-decomposition status vector from host memory into the
+// JAX-visible device status output.
+absl::Status CopyPolarStatusToDevice(
+    se::Stream* stream, const std::array<int32_t, kPolarStatusSize>& status,
     ffi::Result<ffi::BufferR1<S32>> out);
 
 // Encodes workspace byte sizes compactly in status vectors as KiB.

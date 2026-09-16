@@ -169,6 +169,34 @@ absl::Status XlaCusolverMpGesvdValuesDispatch(
     const CollectiveParams* collective_params,
     const CollectiveCliques* collective_cliques);
 
+// Prepare hook for polar decomposition. Requests the all-assigned communicator
+// shared by rectangular redistribution and the cuSOLVERMp device grid.
+absl::Status XlaCusolverMpPolarPrepare(
+    const CollectiveParams* collective_params,
+    CollectiveCliqueRequests* clique_requests);
+
+// Runtime polar-decomposition hook returning both Up and H.
+absl::Status XlaCusolverMpPolarUhDispatch(
+    se::Stream* stream, cudaStream_t cuda_stream,
+    int64_t process_rows, int64_t process_cols, int64_t m, int64_t n,
+    int64_t tile_size, int64_t grid_mapping,
+    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
+    ffi::Result<ffi::AnyBuffer> up, ffi::Result<ffi::AnyBuffer> h,
+    ffi::Result<ffi::BufferR1<S32>> status,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques);
+
+// Runtime polar-decomposition hook returning only Up.
+absl::Status XlaCusolverMpPolarUDispatch(
+    se::Stream* stream, cudaStream_t cuda_stream,
+    int64_t process_rows, int64_t process_cols, int64_t m, int64_t n,
+    int64_t tile_size, int64_t grid_mapping,
+    absl::Span<const int64_t> rank_map, ffi::AnyBuffer a,
+    ffi::Result<ffi::AnyBuffer> up,
+    ffi::Result<ffi::BufferR1<S32>> status,
+    const CollectiveParams* collective_params,
+    const CollectiveCliques* collective_cliques);
+
 }  // namespace xla::gpu
 
 #endif  // JAXMG_CUSOLVERMP_ROUTINES_H_
