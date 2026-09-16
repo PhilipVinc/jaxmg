@@ -150,6 +150,37 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Ctx<ffi::CollectiveParams>()
         .Ctx<ffi::CollectiveCliques>());
 
+// Registers the GELS prepare target for the shared XLA communicator.
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCusolverMpGelsPrepareFFI, XlaCusolverMpGelsPrepare,
+    ffi::Ffi::BindPrepare()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliqueRequests>());
+
+// Registers the rectangular least-squares target. A is returned as opaque
+// work storage, while B is overwritten with the solution in its first N rows.
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCusolverMpGelsFFI, XlaCusolverMpGelsDispatch,
+    ffi::Ffi::Bind()
+        .Ctx<ffi::Stream>()
+        .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        .Attr<int64_t>("process_rows")
+        .Attr<int64_t>("process_cols")
+        .Attr<int64_t>("m")
+        .Attr<int64_t>("n")
+        .Attr<int64_t>("nrhs")
+        .Attr<int64_t>("b_distribution_cols")
+        .Attr<int64_t>("tile_size")
+        .Attr<int64_t>("grid_mapping")
+        .Attr<absl::Span<const int64_t>>("rank_map")
+        .Arg<ffi::AnyBuffer>()
+        .Arg<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::BufferR1<S32>>()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliques>());
+
 // Registers the SYEVD prepare target that requests the same all-assigned P2P
 // communicator clique used by native redistribution and cuSOLVERMp.
 XLA_FFI_DEFINE_HANDLER_SYMBOL(
