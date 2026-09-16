@@ -64,6 +64,12 @@ struct CusolverMpApi {
   decltype(&cusolverMpGels_bufferSize) gels_buffer_size =
       &cusolverMpGels_bufferSize;
   decltype(&cusolverMpGels) gels = &cusolverMpGels;
+  decltype(&cusolverMpGeqrf_bufferSize) geqrf_buffer_size =
+      &cusolverMpGeqrf_bufferSize;
+  decltype(&cusolverMpGeqrf) geqrf = &cusolverMpGeqrf;
+  decltype(&cusolverMpOrgqr_bufferSize) orgqr_buffer_size =
+      &cusolverMpOrgqr_bufferSize;
+  decltype(&cusolverMpOrgqr) orgqr = &cusolverMpOrgqr;
   decltype(&cusolverMpSyevd_bufferSize) syevd_buffer_size =
       &cusolverMpSyevd_bufferSize;
   decltype(&cusolverMpSyevd) syevd = &cusolverMpSyevd;
@@ -144,6 +150,13 @@ enum CusolverMpStatusCode : int32_t {
   kGelsWorkspaceFailed = 52,
   kGelsFailed = 53,
   kGelsInfoNonzero = 54,
+  kGeqrfWorkspaceFailed = 55,
+  kGeqrfFailed = 56,
+  kGeqrfInfoNonzero = 57,
+  kQrExtractFailed = 58,
+  kOrgqrWorkspaceFailed = 59,
+  kOrgqrFailed = 60,
+  kOrgqrInfoNonzero = 61,
 };
 
 inline constexpr int kPotrsStatusSize = 40;
@@ -152,6 +165,7 @@ inline constexpr int kSyevdStatusSize = 36;
 inline constexpr int kGesvdStatusSize = 42;
 inline constexpr int kPolarStatusSize = 32;
 inline constexpr int kGelsStatusSize = 35;
+inline constexpr int kQrStatusSize = 36;
 inline constexpr cusolverMpGridMapping_t kCusolverMpGridMappingRowMajor =
     CUSOLVERMP_GRID_MAPPING_ROW_MAJOR;
 inline constexpr cusolverMpGridMapping_t kCusolverMpGridMappingColMajor =
@@ -226,6 +240,12 @@ absl::Status CopyPolarStatusToDevice(
 // device status output.
 absl::Status CopyGelsStatusToDevice(
     se::Stream* stream, const std::array<int32_t, kGelsStatusSize>& status,
+    ffi::Result<ffi::BufferR1<S32>> out);
+
+// Copies a QR status vector from host memory into the JAX-visible device
+// status output.
+absl::Status CopyQrStatusToDevice(
+    se::Stream* stream, const std::array<int32_t, kQrStatusSize>& status,
     ffi::Result<ffi::BufferR1<S32>> out);
 
 // Encodes workspace byte sizes compactly in status vectors as KiB.

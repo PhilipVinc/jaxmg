@@ -58,6 +58,13 @@ _PRODUCTION_FFI_TARGETS = (
         },
     ),
     (
+        "cusolvermp_qr",
+        {
+            "prepare": "XlaCusolverMpQrPrepareFFI",
+            "execute": "XlaCusolverMpQrFFI",
+        },
+    ),
+    (
         "cusolvermp_syevd",
         {
             "prepare": "XlaCusolverMpSyevdPrepareFFI",
