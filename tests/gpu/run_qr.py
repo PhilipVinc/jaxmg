@@ -49,8 +49,21 @@ from jaxmg._cusolvermp_status import _CUSOLVERMP_QR_STATUS_SIZE
 def run_case() -> None:
     """Run one padded reduced QR decomposition and validate both factors."""
     dtype = dtype_from_name(dtype_name)
-    process_rows, process_cols = num_procs, 1
-    m, n, tile_size = 384, 192, 128
+    if case_name == "padded_qr":
+        process_rows, process_cols = num_procs, 1
+        m, n, tile_size = 384, 192, 128
+    elif case_name == "column_grid":
+        process_rows, process_cols = 1, num_procs
+        m, n, tile_size = 384, 192, 128
+    elif case_name == "square_aligned":
+        process_rows, process_cols = 1, 1
+        m, n, tile_size = 256, 256, 128
+    else:
+        raise ValueError(f"unknown QR test case {case_name!r}")
+    if process_rows * process_cols != num_procs:
+        raise ValueError(
+            f"{case_name} requires {process_rows * process_cols} processes"
+        )
     case = SolverCase(
         process_rows=process_rows,
         process_cols=process_cols,
@@ -106,7 +119,11 @@ def run_case() -> None:
 
     q_host = global_array_to_numpy(q)
     r_host = global_array_to_numpy(r)
-    tolerance = 2e-3 if np.dtype(dtype).itemsize <= 8 else 2e-10
+    tolerance = (
+        2e-3
+        if np.dtype(dtype) in (np.dtype(np.float32), np.dtype(np.complex64))
+        else 2e-10
+    )
     np.testing.assert_allclose(
         q_host.conj().T @ q_host,
         np.eye(n, dtype=q_host.dtype),

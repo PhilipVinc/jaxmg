@@ -21,3 +21,13 @@ def test_qr_padded_reduced_factors(dtype_name):
 def test_qr_shardmap_ctx():
     """Run reduced QR under a caller-owned JIT with donated A storage."""
     run_gpu_test(GPU_TEST, 2, "padded_qr", "float32", interface="context")
+
+
+def test_qr_column_grid():
+    """Exercise distributed R extraction over process columns."""
+    run_gpu_test(GPU_TEST, 2, "column_grid", "float32")
+
+
+def test_qr_square_aligned():
+    """Exercise the square boundary without local padding."""
+    run_gpu_test(GPU_TEST, 1, "square_aligned", "float32")
