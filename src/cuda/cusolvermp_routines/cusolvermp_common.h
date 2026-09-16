@@ -61,6 +61,9 @@ struct CusolverMpApi {
   decltype(&cusolverMpGetrs_bufferSize) getrs_buffer_size =
       &cusolverMpGetrs_bufferSize;
   decltype(&cusolverMpGetrs) getrs = &cusolverMpGetrs;
+  decltype(&cusolverMpGels_bufferSize) gels_buffer_size =
+      &cusolverMpGels_bufferSize;
+  decltype(&cusolverMpGels) gels = &cusolverMpGels;
   decltype(&cusolverMpSyevd_bufferSize) syevd_buffer_size =
       &cusolverMpSyevd_bufferSize;
   decltype(&cusolverMpSyevd) syevd = &cusolverMpSyevd;
@@ -138,6 +141,9 @@ enum CusolverMpStatusCode : int32_t {
   kPolarWorkspaceFailed = 49,
   kPolarFailed = 50,
   kPolarInfoNonzero = 51,
+  kGelsWorkspaceFailed = 52,
+  kGelsFailed = 53,
+  kGelsInfoNonzero = 54,
 };
 
 inline constexpr int kPotrsStatusSize = 40;
@@ -145,6 +151,7 @@ inline constexpr int kLuSolveStatusSize = 41;
 inline constexpr int kSyevdStatusSize = 36;
 inline constexpr int kGesvdStatusSize = 42;
 inline constexpr int kPolarStatusSize = 32;
+inline constexpr int kGelsStatusSize = 35;
 inline constexpr cusolverMpGridMapping_t kCusolverMpGridMappingRowMajor =
     CUSOLVERMP_GRID_MAPPING_ROW_MAJOR;
 inline constexpr cusolverMpGridMapping_t kCusolverMpGridMappingColMajor =
@@ -213,6 +220,12 @@ absl::Status CopyGesvdStatusToDevice(
 // JAX-visible device status output.
 absl::Status CopyPolarStatusToDevice(
     se::Stream* stream, const std::array<int32_t, kPolarStatusSize>& status,
+    ffi::Result<ffi::BufferR1<S32>> out);
+
+// Copies a least-squares status vector from host memory into the JAX-visible
+// device status output.
+absl::Status CopyGelsStatusToDevice(
+    se::Stream* stream, const std::array<int32_t, kGelsStatusSize>& status,
     ffi::Result<ffi::BufferR1<S32>> out);
 
 // Encodes workspace byte sizes compactly in status vectors as KiB.

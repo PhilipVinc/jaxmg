@@ -28,6 +28,8 @@ reduce memory use.
   linear system with `potrs`.
 - [LU solve](lu_solve.md) solves a general nonsingular linear system with
   `lu_solve`.
+- [Least-squares solve](least_squares.md) solves an overdetermined rectangular
+  system with `least_squares`.
 - [Symmetric or Hermitian eigensolve](syevd.md) computes eigenvalues and
   optional eigenvectors with `syevd`.
 - [Singular-value decomposition](gesvd.md) computes the singular values and

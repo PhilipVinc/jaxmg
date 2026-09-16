@@ -51,6 +51,13 @@ _PRODUCTION_FFI_TARGETS = (
         },
     ),
     (
+        "cusolvermp_gels",
+        {
+            "prepare": "XlaCusolverMpGelsPrepareFFI",
+            "execute": "XlaCusolverMpGelsFFI",
+        },
+    ),
+    (
         "cusolvermp_syevd",
         {
             "prepare": "XlaCusolverMpSyevdPrepareFFI",

@@ -49,10 +49,10 @@ namespace xla::gpu {
 // Fused solver handlers.
 // ---------------------------------------------------------------------------
 //
-// Python-facing `potrs`, `lu_solve`, `syevd`, `gesvd`, and `polar` register
-// here. Each call performs local layout conversion, edge-padding compaction,
-// 2D block-cyclic redistribution, cuSOLVERMp execution, reverse redistribution,
-// and local layout restore inside one FFI dispatch.
+// Python-facing solver and decomposition routines register here. Each call
+// performs local layout conversion, edge-padding compaction, 2D block-cyclic
+// redistribution, cuSOLVERMp execution, reverse redistribution, and local
+// layout restore inside one FFI dispatch.
 // Registers the POTRS prepare target that asks XLA to construct the P2P
 // communicator clique before runtime.
 XLA_FFI_DEFINE_HANDLER_SYMBOL(
@@ -136,6 +136,37 @@ XLA_FFI_DEFINE_HANDLER_SYMBOL(
         .Ctx<ffi::ScratchAllocator>()
         .Attr<int64_t>("process_rows")
         .Attr<int64_t>("process_cols")
+        .Attr<int64_t>("n")
+        .Attr<int64_t>("nrhs")
+        .Attr<int64_t>("b_distribution_cols")
+        .Attr<int64_t>("tile_size")
+        .Attr<int64_t>("grid_mapping")
+        .Attr<absl::Span<const int64_t>>("rank_map")
+        .Arg<ffi::AnyBuffer>()
+        .Arg<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::AnyBuffer>()
+        .Ret<ffi::BufferR1<S32>>()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliques>());
+
+// Registers the GELS prepare target for the shared XLA communicator.
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCusolverMpGelsPrepareFFI, XlaCusolverMpGelsPrepare,
+    ffi::Ffi::BindPrepare()
+        .Ctx<ffi::CollectiveParams>()
+        .Ctx<ffi::CollectiveCliqueRequests>());
+
+// Registers the rectangular least-squares target. A is returned as opaque
+// work storage, while B is overwritten with the solution in its first N rows.
+XLA_FFI_DEFINE_HANDLER_SYMBOL(
+    XlaCusolverMpGelsFFI, XlaCusolverMpGelsDispatch,
+    ffi::Ffi::Bind()
+        .Ctx<ffi::Stream>()
+        .Ctx<ffi::PlatformStream<cudaStream_t>>()
+        .Attr<int64_t>("process_rows")
+        .Attr<int64_t>("process_cols")
+        .Attr<int64_t>("m")
         .Attr<int64_t>("n")
         .Attr<int64_t>("nrhs")
         .Attr<int64_t>("b_distribution_cols")

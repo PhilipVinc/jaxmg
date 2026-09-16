@@ -8,6 +8,7 @@ JAXMg solver:
 
 - `run_potrs_example.py`
 - `run_lu_solve_example.py`
+- `run_least_squares_example.py`
 - `run_syevd_example.py`
 - `run_gesvd_example.py`
 - `run_polar_example.py`
@@ -17,6 +18,7 @@ caller-owned `jax.jit`:
 
 - `run_potrs_context_example.py`
 - `run_lu_solve_context_example.py`
+- `run_least_squares_context_example.py`
 - `run_syevd_context_example.py`
 - `run_gesvd_context_example.py`
 - `run_polar_context_example.py`

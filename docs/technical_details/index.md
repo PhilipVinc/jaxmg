@@ -87,6 +87,8 @@ The redistribution stages are shared by all public routines:
   all-reduce to return `log(det(A))`.
 - `lu_solve` calls `cusolverMpGetrf` followed by `cusolverMpGetrs` and manages
   the distributed pivot allocation.
+- `least_squares` calls `cusolverMpGels` for overdetermined rectangular systems
+  and restores the solution from the overwritten solve-input buffer.
 - `syevd` calls `cusolverMpSyevd` and materializes distributed eigenvalues plus
   eigenvectors when requested.
 - `gesvd` calls `cusolverMpGesvd` for rectangular matrices and restores only

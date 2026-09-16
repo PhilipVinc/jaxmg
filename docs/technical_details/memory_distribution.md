@@ -298,9 +298,9 @@ Matrix-valued solver outputs are produced in cuSOLVERMp's column-major,
 inverse block-cyclic cycles, reverses edge-padding alignment when needed, and
 restores row-major local memory. Python then removes visible capacity padding.
 
-For `potrs` and `lu_solve`, a vector solve input is represented internally as
-an $N \times 1$ matrix. The public wrappers restore the original vector rank
-before returning the result.
+For `potrs`, `lu_solve`, and `least_squares`, a vector solve input is represented
+internally as a one-column matrix. The public wrappers restore the original
+vector rank before returning the result.
 
 ## Solver-specific native work
 
@@ -312,6 +312,9 @@ differences are the cuSOLVERMp call sequence and solver workspace:
   and the rank-local sums are combined by an in-place NCCL all-reduce.
 - `lu_solve` calls `cusolverMpGetrf` followed by `cusolverMpGetrs` and allocates
   a pivot vector according to the local cuSOLVERMp column ownership.
+- `least_squares` calls `cusolverMpGels`. The solve input has $M$ rows on entry
+  and is overwritten in place, with the $N$ solution rows restored to their
+  original JAX-facing sharding.
 - `syevd` calls `cusolverMpSyevd`. Its eigenvector-producing mode materializes a
   full distributed eigenvector matrix and reverses the redistribution for that
   output. Its eigenvalues-only mode omits both operations.
@@ -362,6 +365,7 @@ Native C++/CUDA is responsible for:
 |[src/cuda/cusolvermp_routines/cusolvermp_potrs.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_potrs.cc) |
 |[src/cuda/cusolvermp_routines/potrs_logdet.cu.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/potrs_logdet.cu.cc) |
 |[src/cuda/cusolvermp_routines/cusolvermp_lu_solve.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_lu_solve.cc) |
+|[src/cuda/cusolvermp_routines/cusolvermp_gels.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_gels.cc) |
 |[src/cuda/cusolvermp_routines/cusolvermp_syevd.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_syevd.cc) |
 |[src/cuda/cusolvermp_routines/cusolvermp_gesvd.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_gesvd.cc) |
 |[src/cuda/cusolvermp_routines/cusolvermp_polar.cc](https://github.com/flatironinstitute/jaxmg/tree/main/src/cuda/cusolvermp_routines/cusolvermp_polar.cc) |

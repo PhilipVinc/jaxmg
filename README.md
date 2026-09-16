@@ -27,6 +27,9 @@ JAXMg currently provides a jittable API for the following routines:
 - [`lu_solve`](https://flatironinstitute.github.io/jaxmg/latest/api/lu_solve/): Solves the system of linear equations
   $Ax=B$, where $A$ is an $N \times N$ general nonsingular matrix, using a
   pivoted LU decomposition.
+- [`least_squares`](https://flatironinstitute.github.io/jaxmg/latest/api/least_squares/): Solves the overdetermined system
+  $\min_X\lVert AX-B\rVert_2$, where $A$ is an $M \times N$ matrix with
+  $M\geq N$, using a distributed QR factorization.
 - [`syevd`](https://flatironinstitute.github.io/jaxmg/api/syevd/): Computes the
   eigenvalues $\lambda_i$ and optional eigenvectors $v_i$ of an $N \times N$
   symmetric or Hermitian matrix $A$, satisfying $Av_i=\lambda_i v_i$.
@@ -58,6 +61,7 @@ The operations are implemented using:
   and [`cusolverMpPotrs`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermppotrs)
 - `lu_solve`: [`cusolverMpGetrf`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrf)
   and [`cusolverMpGetrs`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrs)
+- `least_squares`: [`cusolverMpGels`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgels)
 - `syevd`: [`cusolverMpSyevd`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpsyevd)
 - `gesvd`: [`cusolverMpGesvd`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgesvd)
 - `polar`: [`cusolverMpPolar`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermppolar)
