@@ -43,6 +43,19 @@ $$
 
 ---
 
+## `least_squares`
+
+Multi-GPU least-squares solver for overdetermined systems.
+
+$$
+X = \underset{X}{\operatorname{argmin}}\;\lVert A X-B\rVert_2,
+\qquad A\in\mathbb{F}^{M\times N},\quad M\geq N.
+$$
+
+[`least_squares` API and usage](least_squares.md)
+
+---
+
 ## `syevd`
 
 Multi-GPU eigensolver for symmetric (Hermitian) matrices.
