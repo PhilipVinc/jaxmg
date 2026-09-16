@@ -26,3 +26,13 @@ def test_least_squares_shardmap_ctx():
     run_gpu_test(
         GPU_TEST, 2, "matrix", "float32", interface="context"
     )
+
+
+def test_least_squares_column_grid():
+    """Exercise padded A and B redistribution over process columns."""
+    run_gpu_test(GPU_TEST, 2, "column_grid", "float32")
+
+
+def test_least_squares_square_aligned():
+    """Exercise the square boundary without local padding."""
+    run_gpu_test(GPU_TEST, 1, "square_aligned", "float32")

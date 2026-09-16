@@ -46,17 +46,30 @@ from jaxmg._cusolvermp_status import _CUSOLVERMP_LEAST_SQUARES_STATUS_SIZE
 
 
 def run_case() -> None:
-    """Run one padded two-GPU overdetermined least-squares case."""
-    if num_procs != 2:
-        raise ValueError("least-squares GPU tests require two processes")
+    """Run one distributed least-squares case and validate its solution."""
     dtype = dtype_from_name(dtype_name)
+    if case_name in ("matrix", "vector"):
+        process_rows, process_cols = 2, 1
+        m, n, tile_size, nrhs = 192, 128, 64, 3
+    elif case_name == "column_grid":
+        process_rows, process_cols = 1, 2
+        m, n, tile_size, nrhs = 192, 96, 64, 3
+    elif case_name == "square_aligned":
+        process_rows, process_cols = 1, 1
+        m, n, tile_size, nrhs = 128, 128, 64, 64
+    else:
+        raise ValueError(f"unknown least-squares test case {case_name!r}")
+    if process_rows * process_cols != num_procs:
+        raise ValueError(
+            f"{case_name} requires {process_rows * process_cols} processes"
+        )
     case = SolverCase(
-        process_rows=2,
-        process_cols=1,
+        process_rows=process_rows,
+        process_cols=process_cols,
         grid_order="row_major",
-        n=192,
-        tile_size=64,
-        nrhs=3,
+        n=m,
+        tile_size=tile_size,
+        nrhs=nrhs,
         rhs_mode="matrix_row_sharded",
     )
     mesh = make_process_mesh(case)
@@ -68,8 +81,8 @@ def run_case() -> None:
         if np.dtype(dtype) in (np.dtype(np.float32), np.dtype(np.complex64))
         else np.float64
     )
-    a_host = rng.normal(size=(192, 128)).astype(real_dtype)
-    b_host = rng.normal(size=(192, 3)).astype(real_dtype)
+    a_host = rng.normal(size=(m, n)).astype(real_dtype)
+    b_host = rng.normal(size=(m, nrhs)).astype(real_dtype)
     if np.issubdtype(np.dtype(dtype), np.complexfloating):
         a_host = a_host + 0.25j * rng.normal(size=a_host.shape).astype(real_dtype)
         b_host = b_host + 0.25j * rng.normal(size=b_host.shape).astype(real_dtype)
@@ -111,8 +124,13 @@ def run_case() -> None:
     assert np.all(
         words[::_CUSOLVERMP_LEAST_SQUARES_STATUS_SIZE] == 0
     ), words
+    tolerance = (
+        2e-3
+        if np.dtype(dtype) in (np.dtype(np.float32), np.dtype(np.complex64))
+        else 1e-9
+    )
     np.testing.assert_allclose(
-        global_array_to_numpy(out), expected, rtol=2e-3, atol=2e-3
+        global_array_to_numpy(out), expected, rtol=tolerance, atol=tolerance
     )
 
     emit(
