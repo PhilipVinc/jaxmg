@@ -135,6 +135,8 @@ nav:
         - "api/syevd.md"
         - "api/gesvd.md"
         - "api/polar.md"
+    - Benchmarks:
+        - "benchmarks/index.md"
     - Technical Details:
         - Native workflow: "technical_details/index.md"
         - Memory distribution: "technical_details/memory_distribution.md"
