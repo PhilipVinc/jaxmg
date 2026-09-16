@@ -26,3 +26,13 @@ def test_polar_can_omit_h():
 def test_polar_shardmap_ctx():
     """Run polar under a caller-owned JIT with donated A storage."""
     run_gpu_test(GPU_TEST, 2, "padded_uh", "float32", interface="context")
+
+
+def test_polar_column_grid():
+    """Exercise padded output redistribution over process columns."""
+    run_gpu_test(GPU_TEST, 2, "column_grid", "float32")
+
+
+def test_polar_square_aligned():
+    """Exercise the square boundary without local padding."""
+    run_gpu_test(GPU_TEST, 1, "square_aligned", "float32")

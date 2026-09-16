@@ -49,9 +49,28 @@ from jaxmg._cusolvermp_status import _CUSOLVERMP_POLAR_STATUS_SIZE
 def run_case() -> None:
     """Run one padded polar decomposition and validate its requested factors."""
     dtype = dtype_from_name(dtype_name)
-    compute_h = case_name != "padded_u"
-    process_rows, process_cols = num_procs, 1
-    m, n, tile_size = 384, 192, 128
+    if case_name == "padded_u":
+        compute_h = False
+        process_rows, process_cols = num_procs, 1
+        m, n, tile_size = 384, 192, 128
+    elif case_name == "padded_uh":
+        compute_h = True
+        process_rows, process_cols = num_procs, 1
+        m, n, tile_size = 384, 192, 128
+    elif case_name == "column_grid":
+        compute_h = True
+        process_rows, process_cols = 1, num_procs
+        m, n, tile_size = 384, 192, 128
+    elif case_name == "square_aligned":
+        compute_h = True
+        process_rows, process_cols = 1, 1
+        m, n, tile_size = 256, 256, 128
+    else:
+        raise ValueError(f"unknown polar test case {case_name!r}")
+    if process_rows * process_cols != num_procs:
+        raise ValueError(
+            f"{case_name} requires {process_rows * process_cols} processes"
+        )
     case = SolverCase(
         process_rows=process_rows,
         process_cols=process_cols,
@@ -62,11 +81,19 @@ def run_case() -> None:
     mesh = make_process_mesh(case)
     matrix_specs = P("pr", "pc")
 
-    # A positive rectangular diagonal has an exact polar decomposition while
-    # exercising different padded local shapes for A and H.
-    a_host = np.zeros((m, n), dtype=np.dtype(dtype))
-    diagonal = np.linspace(1.0, 2.0, n).astype(a_host.real.dtype)
-    a_host[np.arange(n), np.arange(n)] = diagonal
+    rng = np.random.default_rng(29)
+    real_dtype = (
+        np.float32
+        if np.dtype(dtype) in (np.dtype(np.float32), np.dtype(np.complex64))
+        else np.float64
+    )
+    a_host = rng.normal(size=(m, n)).astype(real_dtype)
+    if np.issubdtype(np.dtype(dtype), np.complexfloating):
+        a_host = a_host + 0.25j * rng.normal(size=(m, n)).astype(real_dtype)
+    a_host = a_host.astype(np.dtype(dtype))
+    a_host[np.arange(n), np.arange(n)] += np.asarray(
+        2 * np.sqrt(m), dtype=np.dtype(dtype)
+    )
     a_dev = jax.device_put(a_host, NamedSharding(mesh, matrix_specs))
 
     if interface == "context":
@@ -112,16 +139,27 @@ def run_case() -> None:
     assert np.all(status_words[27::_CUSOLVERMP_POLAR_STATUS_SIZE] == 0), status_words
 
     up_host = global_array_to_numpy(up)
+    tolerance = (
+        5e-3
+        if np.dtype(dtype) in (np.dtype(np.float32), np.dtype(np.complex64))
+        else 1e-9
+    )
     np.testing.assert_allclose(
         up_host.conj().T @ up_host,
         np.eye(n, dtype=up_host.dtype),
-        rtol=5e-3,
-        atol=5e-3,
+        rtol=tolerance,
+        atol=tolerance,
     )
     if h is not None:
         h_host = global_array_to_numpy(h)
-        np.testing.assert_allclose(h_host, h_host.conj().T, rtol=5e-3, atol=5e-3)
-        np.testing.assert_allclose(up_host @ h_host, a_host, rtol=5e-3, atol=5e-3)
+        np.testing.assert_allclose(
+            h_host, h_host.conj().T, rtol=tolerance, atol=tolerance
+        )
+        np.testing.assert_allclose(
+            up_host @ h_host, a_host, rtol=tolerance, atol=tolerance
+        )
+        eigenvalues = np.linalg.eigvalsh((h_host + h_host.conj().T) / 2)
+        assert eigenvalues.min() >= -tolerance * max(1.0, abs(eigenvalues).max())
 
     emit(
         "GPU_TEST_RESULT",
