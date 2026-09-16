@@ -28,7 +28,8 @@ cudaError_t ExtractDistributedQrR(
     cudaStream_t cuda_stream, cudaDataType_t dtype, const void* packed_qr,
     void* r, int64_t n, int64_t tile_size, int64_t process_rows,
     int64_t process_cols, int32_t process_row, int32_t process_col,
-    int64_t qr_local_rows, int64_t r_local_rows, int64_t r_local_cols);
+    int64_t qr_leading_dimension, int64_t r_leading_dimension,
+    int64_t r_numroc_rows, int64_t r_numroc_cols);
 
 }  // namespace xla::gpu
 

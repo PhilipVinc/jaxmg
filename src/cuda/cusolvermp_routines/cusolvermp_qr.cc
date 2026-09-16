@@ -238,7 +238,7 @@ absl::Status RunCusolverMpQr(
       cuda_stream, SolverTraits<DataType>::cuda_data_type,
       q_out->untyped_data(), r_out->untyped_data(), n, tile_size, process_rows,
       process_cols, process_row, process_col, q_out->dimensions()[0],
-      r_numroc_rows, r_numroc_cols);
+      r_out->dimensions()[0], r_numroc_rows, r_numroc_cols);
   if (cuda_status != cudaSuccess) {
     (*status_words)[0] = kQrExtractFailed;
     cleanup();
