@@ -6,7 +6,7 @@ public JAXMg API, but Python must still declare their fixed lengths when it
 builds the corresponding ``jax.ffi.ffi_call`` result types.
 
 The field order and vector lengths must match the corresponding POTRS,
-LU-solve, SYEVD, GESVD, and polar status writers in
+LU-solve, SYEVD, GESVD, polar, least-squares, and QR status writers in
 ``src/cuda/cusolvermp_routines``.
 """
 
@@ -275,6 +275,48 @@ _CUSOLVERMP_LEAST_SQUARES_STATUS_FIELDS = (
 )
 
 
+# Mirrors kQrStatusSize/status_words in
+# src/cuda/cusolvermp_routines/cusolvermp_qr.cc.
+_CUSOLVERMP_QR_STATUS_FIELDS = (
+    "status_code",
+    "cuda_device",
+    "nccl_rank",
+    "nccl_rank_count",
+    "process_rows",
+    "process_cols",
+    "cusolvermp_version",
+    "cusolvermp_runtime_available",
+    "handle_created",
+    "grid_created",
+    "q_descriptor_created",
+    "r_descriptor_created",
+    "raw_cusolver_status",
+    "a_size_bytes",
+    "m",
+    "n",
+    "tile_size",
+    "q_local_rows",
+    "q_local_cols",
+    "q_numroc_rows",
+    "q_numroc_cols",
+    "r_numroc_rows",
+    "r_numroc_cols",
+    "tau_elements",
+    "geqrf_device_workspace_kib",
+    "geqrf_host_workspace_kib",
+    "orgqr_device_workspace_kib",
+    "orgqr_host_workspace_kib",
+    "geqrf_called",
+    "geqrf_info",
+    "r_extracted",
+    "orgqr_called",
+    "orgqr_info",
+    "dtype_code",
+    "grid_mapping",
+    "reserved_0",
+)
+
+
 _CUSOLVERMP_POTRS_STATUS_SIZE = len(_CUSOLVERMP_POTRS_STATUS_FIELDS)
 _CUSOLVERMP_LU_SOLVE_STATUS_SIZE = len(_CUSOLVERMP_LU_SOLVE_STATUS_FIELDS)
 _CUSOLVERMP_SYEVD_STATUS_SIZE = len(_CUSOLVERMP_SYEVD_STATUS_FIELDS)
@@ -283,3 +325,4 @@ _CUSOLVERMP_POLAR_STATUS_SIZE = len(_CUSOLVERMP_POLAR_STATUS_FIELDS)
 _CUSOLVERMP_LEAST_SQUARES_STATUS_SIZE = len(
     _CUSOLVERMP_LEAST_SQUARES_STATUS_FIELDS
 )
+_CUSOLVERMP_QR_STATUS_SIZE = len(_CUSOLVERMP_QR_STATUS_FIELDS)
