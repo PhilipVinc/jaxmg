@@ -34,6 +34,10 @@ JAXMg currently provides a jittable API for the following routines:
   the singular-value decomposition of an $M \times N$ matrix
   $A$ ($A = U \Sigma V^{\dagger}$), returning the singular values and optional
   left and right singular vectors.
+- [`polar`](https://flatironinstitute.github.io/jaxmg/latest/api/polar/): Computes
+  the polar decomposition of a tall or square matrix $A$ ($A=U_pH$), returning
+  the polar factor $U_p$ and optional Hermitian positive-semidefinite factor
+  $H$.
 
 ## How JAXMg works
 
@@ -56,6 +60,7 @@ The operations are implemented using:
   and [`cusolverMpGetrs`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgetrs)
 - `syevd`: [`cusolverMpSyevd`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpsyevd)
 - `gesvd`: [`cusolverMpGesvd`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermpgesvd)
+- `polar`: [`cusolverMpPolar`](https://docs.nvidia.com/cuda/cusolvermp/usage/functions.html#cusolvermppolar)
 
 For more details, see the [API reference](https://flatironinstitute.github.io/jaxmg/latest/api/) and the
 [accompanying paper](https://arxiv.org/abs/2601.14466).

@@ -65,3 +65,18 @@ matrix $A$ ($A = U \Sigma V^{\dagger}$), returning the singular values and
 independently selected left and right singular vectors in reduced or full form.
 
 [`gesvd` API and usage](gesvd.md)
+
+---
+
+## `polar`
+
+Compute the polar decomposition of a tall or square matrix $A$:
+
+$$
+A = U_p H,
+$$
+
+returning the polar factor $U_p$ and optionally the Hermitian
+positive-semidefinite factor $H$.
+
+[`polar` API and usage](polar.md)

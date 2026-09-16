@@ -10,6 +10,7 @@ JAXMg solver:
 - `run_lu_solve_example.py`
 - `run_syevd_example.py`
 - `run_gesvd_example.py`
+- `run_polar_example.py`
 
 The context examples construct the inputs and execute the solver inside one
 caller-owned `jax.jit`:
@@ -18,6 +19,7 @@ caller-owned `jax.jit`:
 - `run_lu_solve_context_example.py`
 - `run_syevd_context_example.py`
 - `run_gesvd_context_example.py`
+- `run_polar_context_example.py`
 
 To run an example on a local node with an even number of GPUs:
 

@@ -33,3 +33,5 @@ reduce memory use.
 - [Singular-value decomposition](gesvd.md) computes the singular values and
   optional left and right singular vectors of a real or complex matrix with
   `gesvd`.
+- [Polar decomposition](polar.md) computes the polar factor and optional
+  Hermitian factor with `polar`.
