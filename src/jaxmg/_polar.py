@@ -142,10 +142,33 @@ def polar_shardmap_ctx(
     ``jax.jit(..., donate_argnums=(0,))`` can alias the input matrix directly
     to a numerical result.
 
+    Args:
+        a (Array): A rank-2 real or complex tall or square matrix sharded over
+            a one- or two-axis device mesh.
+        T_A (int): Square cuSOLVERMp tile width.
+        mesh (Mesh, optional): JAX mesh used by ``jax.shard_map``. If omitted,
+            inferred from ``a.sharding.mesh``.
+        matrix_specs (PartitionSpec or tuple/list[PartitionSpec], optional):
+            Rank-2 matrix sharding. If omitted, inferred from
+            ``a.sharding.spec``.
+        in_specs: Backwards-compatible alias for ``matrix_specs``.
+        compute_h (bool, optional): Whether to compute and return ``H``.
+            Default is True. This must be a Python ``bool`` fixed while
+            tracing.
+        pad (bool, optional): If True (default), add tile-aligned local capacity
+            where required. If False, all participating local matrix shapes
+            must already be divisible by ``T_A``.
+
     Returns:
         ``(Up, H, status)`` when ``compute_h=True`` or ``(Up, status)``
         otherwise. The status vector is always returned so an enclosing
         compiled function can propagate native diagnostics.
+
+    Raises:
+        TypeError: If the dtype, static mode flag, or sharding specification is
+            unsupported.
+        ValueError: If the matrix is wide or its shape, tile size, process
+            grid, or requested output layout is incompatible with cuSOLVERMp.
     """
     mesh, matrix_specs, native_status_specs, grid, rank_map, a_padding, h_padding = (
         _prepare_polar_call(

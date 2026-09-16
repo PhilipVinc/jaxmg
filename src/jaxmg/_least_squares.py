@@ -153,10 +153,28 @@ def least_squares_shardmap_ctx(
     It returns ``a_work`` and ``b_work`` so an outer compiled function can
     donate both inputs into shape-compatible native work outputs.
 
+    Args:
+        a (Array): Rank-2 input matrix sharded over a one- or two-axis device
+            mesh.
+        b (Array): Rank-1 or rank-2 solve input with ``M`` rows.
+        T_A (int): Square cuSOLVERMp tile width.
+        mesh (Mesh, optional): JAX mesh used by ``jax.shard_map``. If omitted,
+            inferred from ``a.sharding.mesh``.
+        matrix_specs (PartitionSpec or tuple/list[PartitionSpec], optional):
+            Rank-2 matrix sharding. If omitted, inferred from
+            ``a.sharding.spec``.
+        in_specs: Backwards-compatible alias for ``matrix_specs``.
+        pad (bool, optional): If True (default), add tile-aligned local
+            capacity where required.
+
     Returns:
         tuple: ``(a_work, b_work, x, status)`` containing the opaque matrix and
         solve-input work buffers, least-squares solution, and native per-rank
         status. The first ``N`` rows of ``b_work`` contain ``x``.
+
+    Raises:
+        TypeError: If dtypes or sharding specifications are unsupported.
+        ValueError: If shapes, tile sizes, or mesh layouts are incompatible.
     """
     vector_rhs = _validate_least_squares_inputs(
         a, b, T_A, "least_squares_shardmap_ctx"

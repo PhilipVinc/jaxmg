@@ -126,9 +126,28 @@ def qr_shardmap_ctx(
     donation boundary to the caller. The first output is ``Q``, allowing an
     outer ``jax.jit(..., donate_argnums=(0,))`` to alias the input matrix.
 
+    Args:
+        a (Array): A rank-2 real or complex tall or square matrix sharded over
+            a one- or two-axis device mesh.
+        T_A (int): Square cuSOLVERMp tile width.
+        mesh (Mesh, optional): JAX mesh used by ``jax.shard_map``. If omitted,
+            inferred from ``a.sharding.mesh``.
+        matrix_specs (PartitionSpec or tuple/list[PartitionSpec], optional):
+            Rank-2 matrix sharding. If omitted, inferred from
+            ``a.sharding.spec``.
+        in_specs: Backwards-compatible alias for ``matrix_specs``.
+        pad (bool, optional): If True (default), add tile-aligned local capacity
+            where required. If False, all participating local matrix shapes
+            must already be divisible by ``T_A``.
+
     Returns:
         ``(Q, R, status)``. The status vector is always returned so an
         enclosing compiled function can propagate native diagnostics.
+
+    Raises:
+        TypeError: If the input dtype or sharding specification is unsupported.
+        ValueError: If the matrix is wide or its shape, tile size, process
+            grid, or output layout is incompatible with cuSOLVERMp.
     """
     mesh, matrix_specs, native_status_specs, grid, rank_map, a_padding, r_padding = (
         _prepare_qr_call(
