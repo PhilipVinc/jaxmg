@@ -177,13 +177,10 @@ def validate_2d_matrix_specs(
 def rhs_distribution_columns(nrhs: int, *, process_cols: int, pad: bool) -> int:
     """Choose the JAX-visible RHS width used before local tile padding.
 
-    cuSOLVERMp accepts a skinny solve-input matrix ``B`` with ``NRHS``
-    columns, even when ``NRHS`` is smaller than the process-grid column count.
-    In that ScaLAPACK-style layout, some process columns simply own zero real
-    RHS columns. The JAX-facing block-sharded input cannot express that zero
-    ownership with the simple ``PartitionSpec(row_axis, col_axis)`` contract
-    used by this backend, because the global column dimension must first be
-    splittable over ``process_cols``.
+    cuSOLVERMp represents a skinny solve input ``B`` using its logical
+    ``NRHS`` columns, whose block-cyclic ownership need not match JAX's even
+    block sharding. The JAX-facing input must first have a global column
+    dimension that is divisible by ``process_cols``.
 
     To bridge the two models, JAXMg pads the JAX-visible RHS width to the next
     multiple of the process-column count before applying local tile padding.

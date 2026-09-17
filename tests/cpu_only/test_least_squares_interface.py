@@ -132,6 +132,45 @@ def test_least_squares_rejects_incompatible_solution_sharding(monkeypatch):
         )
 
 
+def test_least_squares_rejects_empty_rhs_process_column(monkeypatch):
+    class FakeMesh:
+        shape = {"pc": 2}
+
+    grid = least_squares_module.ProcessGrid(1, 2)
+    monkeypatch.setattr(
+        least_squares_module,
+        "infer_mesh_and_matrix_specs",
+        lambda *args, **kwargs: (FakeMesh(), P(None, "pc")),
+    )
+    monkeypatch.setattr(
+        least_squares_module,
+        "infer_rhs_specs",
+        lambda *args, **kwargs: P(None, None),
+    )
+    monkeypatch.setattr(
+        least_squares_module,
+        "validate_2d_matrix_specs",
+        lambda *args, **kwargs: (None, "pc", grid),
+    )
+    monkeypatch.setattr(
+        least_squares_module,
+        "process_rank_map_from_mesh",
+        lambda *args, **kwargs: least_squares_module.ProcessRankMap.row_major(grid),
+    )
+
+    with pytest.raises(ValueError, match=r"least_squares\(B\).*own at least one"):
+        least_squares_module._prepare_least_squares_layout(
+            jnp.ones((192, 96)),
+            jnp.ones((192, 3)),
+            64,
+            mesh=None,
+            matrix_specs=None,
+            in_specs=None,
+            pad=True,
+            caller="least_squares",
+        )
+
+
 @pytest.mark.parametrize(
     "a,b,message",
     [

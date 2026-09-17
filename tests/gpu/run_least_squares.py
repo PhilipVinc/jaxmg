@@ -53,7 +53,7 @@ def run_case() -> None:
         m, n, tile_size, nrhs = 192, 128, 64, 3
     elif case_name == "column_grid":
         process_rows, process_cols = 1, 2
-        m, n, tile_size, nrhs = 192, 96, 64, 3
+        m, n, tile_size, nrhs = 192, 96, 64, 65
     elif case_name == "square_aligned":
         process_rows, process_cols = 1, 1
         m, n, tile_size, nrhs = 128, 128, 64, 64

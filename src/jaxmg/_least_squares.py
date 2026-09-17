@@ -57,7 +57,8 @@ def least_squares(
     The current implementation supports overdetermined or square systems with
     ``M >= N``. For ``A`` of shape ``(M, N)`` and ``B`` of shape ``(M, K)``,
     the returned solution has shape ``(N, K)``. A rank-1 ``B`` is accepted and
-    produces a rank-1 solution.
+    produces a rank-1 solution. Every process-grid column must own at least one
+    block-cyclic tile of ``B``.
 
     Args:
         a (Array): Rank-2 input matrix sharded over a one- or two-axis device
@@ -303,6 +304,13 @@ def _prepare_least_squares_layout(
         caller=f"{caller}(A)",
     )
     nrhs = int(b.shape[1])
+    validate_nonempty_block_cyclic_ownership(
+        logical_rows=m,
+        logical_cols=nrhs,
+        grid=grid,
+        tile_shape=tile_shape,
+        caller=f"{caller}(B)",
+    )
     b_distribution_cols = rhs_distribution_columns(
         nrhs, process_cols=grid.process_cols, pad=pad
     )
