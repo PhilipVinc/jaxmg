@@ -35,7 +35,8 @@ NVIDIA GPU families are:
 | CUDA 12 | V100, A100, H100/H200, and Blackwell GPUs |
 | CUDA 13 | A100, H100/H200, and Blackwell GPUs |
 
-The binaries use JAX `0.11.1` and cuSOLVERMp `0.9.1.9318.post1`. See
+The binaries support JAX `0.11.1` and `0.11.2` and use cuSOLVERMp
+`0.9.1.9318.post1`. See
 [Building from source](technical_details/building_from_source.md) for the native
 build procedure.
 
