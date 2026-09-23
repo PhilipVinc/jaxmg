@@ -20,18 +20,15 @@ from jax.sharding import Mesh, PartitionSpec as P
 
 from ._cusolvermp_layout import (
     cusolvermp_grid_mapping_attr,
-    infer_mesh_and_matrix_specs,
     make_local_pad_fn,
     make_local_unpad_fn,
+    prepare_input_matrix_layout,
     prepare_rectangular_matrix_layout,
     use_abstract_mesh_decorator,
-    process_rank_map_from_mesh,
     standard_grid_rank_map_attr,
-    status_specs,
-    validate_2d_matrix_specs,
 )
 from ._cusolvermp_status import _CUSOLVERMP_GESVD_STATUS_SIZE
-from ._layout_types import MatrixPadding2D, ProcessGrid, ProcessRankMap, TileShape
+from ._layout_types import MatrixPadding2D, ProcessGrid, ProcessRankMap
 from ._setup import ensure_init_jaxmg_backend
 
 
@@ -117,72 +114,34 @@ def gesvd(
         - If the native solver fails, numerical outputs may be incomplete; use
           ``return_status=True`` when per-rank diagnostics are required.
     """
-    if a.ndim != 2:
-        raise ValueError("gesvd expects a rank-2 matrix A.")
-    _check_supported_gesvd_dtype(a.dtype)
-    if int(T_A) <= 0:
-        raise ValueError("T_A must be positive.")
-    for name, value in (
-        ("compute_u", compute_u),
-        ("compute_vh", compute_vh),
-        ("full_matrices", full_matrices),
-    ):
-        if not isinstance(value, bool):
-            raise TypeError(f"{name} must be a Python bool.")
-
-    mesh, matrix_specs = infer_mesh_and_matrix_specs(
+    layout, u_padding, vh_padding = _prepare_gesvd_call(
         a,
-        mesh=mesh,
-        matrix_specs=matrix_specs,
-        in_specs=in_specs,
-    )
-    row_axis, col_axis, grid = validate_2d_matrix_specs(mesh, matrix_specs)
-    rank_map = process_rank_map_from_mesh(
+        T_A,
         mesh,
-        row_axis=row_axis,
-        col_axis=col_axis,
-        grid=grid,
+        matrix_specs,
+        in_specs=in_specs,
+        compute_u=compute_u,
+        compute_vh=compute_vh,
+        full_matrices=full_matrices,
+        pad=pad,
         caller="gesvd",
     )
-    native_status_specs = status_specs(row_axis, col_axis, grid)
-    tile_shape = TileShape(rows=int(T_A), cols=int(T_A))
     m, n = map(int, a.shape)
-    k = min(m, n)
-    u_shape = (m, m if full_matrices else k)
-    vh_shape = (n if full_matrices else k, n)
-
-    a_padding = prepare_rectangular_matrix_layout(
-        m, n, grid, tile_shape, pad=pad, caller="gesvd(A)"
-    )
-    u_padding = (
-        prepare_rectangular_matrix_layout(
-            *u_shape, grid, tile_shape, pad=pad, caller="gesvd(U)"
-        )
-        if compute_u
-        else None
-    )
-    vh_padding = (
-        prepare_rectangular_matrix_layout(
-            *vh_shape, grid, tile_shape, pad=pad, caller="gesvd(Vh)"
-        )
-        if compute_vh
-        else None
-    )
 
     ensure_init_jaxmg_backend()
     impl = _gesvd_compiled(
-        mesh,
-        matrix_specs,
-        native_status_specs,
-        grid,
-        rank_map,
-        rank_map.cusolvermp_grid_mapping,
-        a_padding,
+        layout.mesh,
+        layout.matrix_specs,
+        layout.native_status_specs,
+        layout.grid,
+        layout.rank_map,
+        layout.rank_map.cusolvermp_grid_mapping,
+        layout.padding,
         u_padding,
         vh_padding,
         m=m,
         n=n,
-        tile_size=tile_shape.rows,
+        tile_size=layout.tile_shape.rows,
         dtype=a.dtype,
         compute_u=compute_u,
         compute_vh=compute_vh,
@@ -265,80 +224,34 @@ def gesvd_shardmap_ctx(
         ValueError: If a shape, tile size, process grid, or requested output
             layout is incompatible with cuSOLVERMp.
     """
-    if a.ndim != 2:
-        raise ValueError("gesvd_shardmap_ctx expects a rank-2 matrix A.")
-    _check_supported_gesvd_dtype(a.dtype)
-    if int(T_A) <= 0:
-        raise ValueError("T_A must be positive.")
-    for name, value in (
-        ("compute_u", compute_u),
-        ("compute_vh", compute_vh),
-        ("full_matrices", full_matrices),
-    ):
-        if not isinstance(value, bool):
-            raise TypeError(f"{name} must be a Python bool.")
-
-    mesh, matrix_specs = infer_mesh_and_matrix_specs(
+    layout, u_padding, vh_padding = _prepare_gesvd_call(
         a,
-        mesh=mesh,
-        matrix_specs=matrix_specs,
-        in_specs=in_specs,
-    )
-    row_axis, col_axis, grid = validate_2d_matrix_specs(mesh, matrix_specs)
-    rank_map = process_rank_map_from_mesh(
+        T_A,
         mesh,
-        row_axis=row_axis,
-        col_axis=col_axis,
-        grid=grid,
+        matrix_specs,
+        in_specs=in_specs,
+        compute_u=compute_u,
+        compute_vh=compute_vh,
+        full_matrices=full_matrices,
+        pad=pad,
         caller="gesvd_shardmap_ctx",
     )
-    native_status_specs = status_specs(row_axis, col_axis, grid)
-    tile_shape = TileShape(rows=int(T_A), cols=int(T_A))
     m, n = map(int, a.shape)
-    k = min(m, n)
-    u_shape = (m, m if full_matrices else k)
-    vh_shape = (n if full_matrices else k, n)
-
-    a_padding = prepare_rectangular_matrix_layout(
-        m, n, grid, tile_shape, pad=pad, caller="gesvd_shardmap_ctx(A)"
-    )
-    u_padding = (
-        prepare_rectangular_matrix_layout(
-            *u_shape,
-            grid,
-            tile_shape,
-            pad=pad,
-            caller="gesvd_shardmap_ctx(U)",
-        )
-        if compute_u
-        else None
-    )
-    vh_padding = (
-        prepare_rectangular_matrix_layout(
-            *vh_shape,
-            grid,
-            tile_shape,
-            pad=pad,
-            caller="gesvd_shardmap_ctx(Vh)",
-        )
-        if compute_vh
-        else None
-    )
 
     ensure_init_jaxmg_backend()
     impl = _gesvd_pipeline(
-        mesh,
-        matrix_specs,
-        native_status_specs,
-        grid,
-        rank_map,
-        rank_map.cusolvermp_grid_mapping,
-        a_padding,
+        layout.mesh,
+        layout.matrix_specs,
+        layout.native_status_specs,
+        layout.grid,
+        layout.rank_map,
+        layout.rank_map.cusolvermp_grid_mapping,
+        layout.padding,
         u_padding,
         vh_padding,
         m=m,
         n=n,
-        tile_size=tile_shape.rows,
+        tile_size=layout.tile_shape.rows,
         dtype=a.dtype,
         compute_u=compute_u,
         compute_vh=compute_vh,
@@ -358,7 +271,78 @@ def gesvd_shardmap_ctx(
     return a_work, singular_values, native_status
 
 
-_ROW_MAJOR_JAX_LAYOUT = (0, 1)
+def _prepare_gesvd_call(
+    a: Array,
+    tile_size: int,
+    mesh: Mesh | None,
+    matrix_specs: P | Tuple[P] | List[P] | None,
+    *,
+    in_specs: P | Tuple[P] | List[P] | None,
+    compute_u: bool,
+    compute_vh: bool,
+    full_matrices: bool,
+    pad: bool,
+    caller: str,
+):
+    """Validate an SVD call and derive its input and output layouts.
+
+    Preparation proceeds as follows:
+
+    1. Validate the input rank, dtype, and tile size.
+    2. Require static Python booleans for the requested vector-output modes.
+    3. Resolve the mesh, process grid, rank map, and tile-aligned layout of A.
+    4. Derive the reduced or full U and Vh shapes and prepare only the
+       requested distributed output layouts.
+    """
+    if a.ndim != 2:
+        raise ValueError(f"{caller} expects a rank-2 matrix A.")
+    _check_supported_gesvd_dtype(a.dtype)
+    if int(tile_size) <= 0:
+        raise ValueError("T_A must be positive.")
+    for name, value in (
+        ("compute_u", compute_u),
+        ("compute_vh", compute_vh),
+        ("full_matrices", full_matrices),
+    ):
+        if not isinstance(value, bool):
+            raise TypeError(f"{name} must be a Python bool.")
+
+    layout = prepare_input_matrix_layout(
+        a,
+        tile_size,
+        mesh=mesh,
+        matrix_specs=matrix_specs,
+        in_specs=in_specs,
+        pad=pad,
+        caller=caller,
+    )
+    m, n = map(int, a.shape)
+    k = min(m, n)
+    u_padding = (
+        prepare_rectangular_matrix_layout(
+            m,
+            m if full_matrices else k,
+            layout.grid,
+            layout.tile_shape,
+            pad=pad,
+            caller=f"{caller}(U)",
+        )
+        if compute_u
+        else None
+    )
+    vh_padding = (
+        prepare_rectangular_matrix_layout(
+            n if full_matrices else k,
+            n,
+            layout.grid,
+            layout.tile_shape,
+            pad=pad,
+            caller=f"{caller}(Vh)",
+        )
+        if compute_vh
+        else None
+    )
+    return layout, u_padding, vh_padding
 
 
 def _check_supported_gesvd_dtype(dtype) -> None:
@@ -381,6 +365,9 @@ def _real_dtype_for_singular_values(dtype):
     raise TypeError(
         "cuSOLVERMp GESVD supports float32, float64, complex64, and complex128."
     )
+
+
+_ROW_MAJOR_JAX_LAYOUT = (0, 1)
 
 
 @lru_cache(maxsize=None)

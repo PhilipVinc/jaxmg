@@ -18,18 +18,15 @@ from jax.sharding import Mesh, PartitionSpec as P
 
 from ._cusolvermp_layout import (
     cusolvermp_grid_mapping_attr,
-    infer_mesh_and_matrix_specs,
     make_local_pad_fn,
     make_local_unpad_fn,
+    prepare_input_matrix_layout,
     prepare_rectangular_matrix_layout,
-    process_rank_map_from_mesh,
     standard_grid_rank_map_attr,
-    status_specs,
     use_abstract_mesh_decorator,
-    validate_2d_matrix_specs,
 )
 from ._cusolvermp_status import _CUSOLVERMP_QR_STATUS_SIZE
-from ._layout_types import MatrixPadding2D, ProcessGrid, ProcessRankMap, TileShape
+from ._layout_types import MatrixPadding2D, ProcessGrid, ProcessRankMap
 from ._setup import ensure_init_jaxmg_backend
 
 
@@ -78,27 +75,25 @@ def qr(
         ValueError: If the matrix is wide or its shape, tile size, process
             grid, or output layout is incompatible with cuSOLVERMp.
     """
-    mesh, matrix_specs, native_status_specs, grid, rank_map, a_padding, r_padding = (
-        _prepare_qr_call(
-            a,
-            T_A,
-            mesh,
-            matrix_specs,
-            in_specs=in_specs,
-            pad=pad,
-            caller="qr",
-        )
+    layout, r_padding = _prepare_qr_call(
+        a,
+        T_A,
+        mesh,
+        matrix_specs,
+        in_specs=in_specs,
+        pad=pad,
+        caller="qr",
     )
     m, n = map(int, a.shape)
     ensure_init_jaxmg_backend()
     impl = _qr_compiled(
-        mesh,
-        matrix_specs,
-        native_status_specs,
-        grid,
-        rank_map,
-        rank_map.cusolvermp_grid_mapping,
-        a_padding,
+        layout.mesh,
+        layout.matrix_specs,
+        layout.native_status_specs,
+        layout.grid,
+        layout.rank_map,
+        layout.rank_map.cusolvermp_grid_mapping,
+        layout.padding,
         r_padding,
         m=m,
         n=n,
@@ -149,27 +144,25 @@ def qr_shardmap_ctx(
         ValueError: If the matrix is wide or its shape, tile size, process
             grid, or output layout is incompatible with cuSOLVERMp.
     """
-    mesh, matrix_specs, native_status_specs, grid, rank_map, a_padding, r_padding = (
-        _prepare_qr_call(
-            a,
-            T_A,
-            mesh,
-            matrix_specs,
-            in_specs=in_specs,
-            pad=pad,
-            caller="qr_shardmap_ctx",
-        )
+    layout, r_padding = _prepare_qr_call(
+        a,
+        T_A,
+        mesh,
+        matrix_specs,
+        in_specs=in_specs,
+        pad=pad,
+        caller="qr_shardmap_ctx",
     )
     m, n = map(int, a.shape)
     ensure_init_jaxmg_backend()
     return _qr_pipeline(
-        mesh,
-        matrix_specs,
-        native_status_specs,
-        grid,
-        rank_map,
-        rank_map.cusolvermp_grid_mapping,
-        a_padding,
+        layout.mesh,
+        layout.matrix_specs,
+        layout.native_status_specs,
+        layout.grid,
+        layout.rank_map,
+        layout.rank_map.cusolvermp_grid_mapping,
+        layout.padding,
         r_padding,
         m=m,
         n=n,
@@ -188,7 +181,15 @@ def _prepare_qr_call(
     pad: bool,
     caller: str,
 ):
-    """Validate one public QR call and derive its distributed layouts."""
+    """Validate a QR call and derive its distributed layouts.
+
+    Preparation proceeds as follows:
+
+    1. Validate the input rank, dtype, and tile size.
+    2. Require a tall or square input for the reduced QR decomposition.
+    3. Resolve the mesh, process grid, rank map, and tile-aligned layout of A.
+    4. Validate and prepare the square R output layout.
+    """
     if a.ndim != 2:
         raise ValueError(f"{caller} expects a rank-2 matrix A.")
     _check_supported_qr_dtype(a.dtype)
@@ -198,36 +199,24 @@ def _prepare_qr_call(
     if m < n:
         raise ValueError(f"{caller} requires a tall or square matrix with m >= n.")
 
-    mesh, matrix_specs = infer_mesh_and_matrix_specs(
+    layout = prepare_input_matrix_layout(
         a,
+        tile_size,
         mesh=mesh,
         matrix_specs=matrix_specs,
         in_specs=in_specs,
-    )
-    row_axis, col_axis, grid = validate_2d_matrix_specs(mesh, matrix_specs)
-    rank_map = process_rank_map_from_mesh(
-        mesh,
-        row_axis=row_axis,
-        col_axis=col_axis,
-        grid=grid,
+        pad=pad,
         caller=caller,
     )
-    tile_shape = TileShape(rows=int(tile_size), cols=int(tile_size))
-    a_padding = prepare_rectangular_matrix_layout(
-        m, n, grid, tile_shape, pad=pad, caller=f"{caller}(A)"
-    )
     r_padding = prepare_rectangular_matrix_layout(
-        n, n, grid, tile_shape, pad=pad, caller=f"{caller}(R)"
+        n,
+        n,
+        layout.grid,
+        layout.tile_shape,
+        pad=pad,
+        caller=f"{caller}(R)",
     )
-    return (
-        mesh,
-        matrix_specs,
-        status_specs(row_axis, col_axis, grid),
-        grid,
-        rank_map,
-        a_padding,
-        r_padding,
-    )
+    return layout, r_padding
 
 
 def _check_supported_qr_dtype(dtype) -> None:

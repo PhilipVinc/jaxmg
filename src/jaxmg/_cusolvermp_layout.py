@@ -16,6 +16,7 @@ C++/CUDA.  The helpers here only describe shapes and sharding to JAX.
 from __future__ import annotations
 
 import functools
+from typing import NamedTuple
 
 import jax.numpy as jnp
 import numpy as np
@@ -31,6 +32,18 @@ from ._layout_types import (
     calculate_2d_padding,
     validate_nonempty_block_cyclic_ownership,
 )
+
+
+class PreparedMatrixLayout(NamedTuple):
+    """Distributed layout metadata shared by every cuSOLVERMp routine."""
+
+    mesh: Mesh
+    matrix_specs: P
+    native_status_specs: P
+    grid: ProcessGrid
+    rank_map: ProcessRankMap
+    tile_shape: TileShape
+    padding: MatrixPadding2D
 
 
 # -----------------------------------------------------------------------------
@@ -687,7 +700,7 @@ def infer_mesh_and_matrix_specs(
 
 
 # -----------------------------------------------------------------------------
-# JAX-visible status and local padding layouts
+# JAX-visible status and matrix layouts
 # -----------------------------------------------------------------------------
 
 
@@ -713,6 +726,135 @@ def status_specs(
     if grid.process_cols == 1:
         return P(row_axis)
     return P((row_axis, col_axis))
+
+
+def prepare_matrix_padding(
+    logical_rows: int,
+    logical_cols: int,
+    grid: ProcessGrid,
+    tile_shape: TileShape,
+    *,
+    pad: bool,
+    caller: str,
+) -> MatrixPadding2D:
+    """Return the tile-aligned local capacity for a distributed array.
+
+    Args:
+        logical_rows: Global logical row count.
+        logical_cols: Global logical column count.
+        grid: cuSOLVERMp process-grid shape.
+        tile_shape: Native block-cyclic tile dimensions.
+        pad: Whether local shards may be padded to tile-aligned capacity.
+        caller: Routine-specific array label used in validation errors.
+
+    Returns:
+        The logical and physical local dimensions required on every rank.
+
+    Raises:
+        ValueError: If the global shape cannot be represented by the JAX
+            sharding, or padding is required while ``pad=False``.
+    """
+    try:
+        padding = calculate_2d_padding(
+            logical_rows=logical_rows,
+            logical_cols=logical_cols,
+            grid=grid,
+            tile_shape=tile_shape,
+        )
+    except ValueError as exc:
+        raise ValueError(
+            f"{caller} shape ({logical_rows}, {logical_cols}) must be divisible "
+            f"by process grid ({grid.process_rows}, {grid.process_cols}) "
+            "before local tile padding."
+        ) from exc
+    if not pad and padding.needs_padding:
+        raise ValueError(
+            f"{caller} requires tile-aligned local shards when pad=False. "
+            "Use a tile size that divides both local dimensions or set pad=True."
+        )
+    return padding
+
+
+def prepare_rectangular_matrix_layout(
+    logical_rows: int,
+    logical_cols: int,
+    grid: ProcessGrid,
+    tile_shape: TileShape,
+    *,
+    pad: bool,
+    caller: str,
+) -> MatrixPadding2D:
+    """Validate block-cyclic ownership and return uniform local capacity."""
+    validate_nonempty_block_cyclic_ownership(
+        logical_rows=logical_rows,
+        logical_cols=logical_cols,
+        grid=grid,
+        tile_shape=tile_shape,
+        caller=caller,
+    )
+    return prepare_matrix_padding(
+        logical_rows,
+        logical_cols,
+        grid,
+        tile_shape,
+        pad=pad,
+        caller=caller,
+    )
+
+
+def prepare_input_matrix_layout(
+    a: Array,
+    tile_size: int,
+    *,
+    mesh: Mesh | None,
+    matrix_specs: P | tuple[P, ...] | list[P] | None,
+    in_specs: P | tuple[P, ...] | list[P] | None,
+    pad: bool,
+    caller: str,
+) -> PreparedMatrixLayout:
+    """Derive the common mesh, process-grid, rank-map, and A-padding metadata.
+
+    Routine-specific wrappers validate their mathematical contracts before
+    calling this helper. This function handles the distributed layout contract
+    shared by every native cuSOLVERMp operation.
+    """
+    mesh, matrix_specs = infer_mesh_and_matrix_specs(
+        a,
+        mesh=mesh,
+        matrix_specs=matrix_specs,
+        in_specs=in_specs,
+    )
+    row_axis, col_axis, grid = validate_2d_matrix_specs(mesh, matrix_specs)
+    rank_map = process_rank_map_from_mesh(
+        mesh,
+        row_axis=row_axis,
+        col_axis=col_axis,
+        grid=grid,
+        caller=caller,
+    )
+    tile_shape = TileShape(rows=int(tile_size), cols=int(tile_size))
+    padding = prepare_rectangular_matrix_layout(
+        int(a.shape[0]),
+        int(a.shape[1]),
+        grid,
+        tile_shape,
+        pad=pad,
+        caller=f"{caller}(A)",
+    )
+    return PreparedMatrixLayout(
+        mesh,
+        matrix_specs,
+        status_specs(row_axis, col_axis, grid),
+        grid,
+        rank_map,
+        tile_shape,
+        padding,
+    )
+
+
+# -----------------------------------------------------------------------------
+# Local padding transforms
+# -----------------------------------------------------------------------------
 
 
 def _pad_local_2d(block: Array, *, row_padding: int, col_padding: int) -> Array:
@@ -744,61 +886,6 @@ def _unpad_local_2d(block: Array, *, local_rows: int, local_cols: int) -> Array:
         The leading ``(local_rows, local_cols)`` logical region.
     """
     return block[:local_rows, :local_cols]
-
-
-def prepare_rectangular_matrix_layout(
-    logical_rows: int,
-    logical_cols: int,
-    grid: ProcessGrid,
-    tile_shape: TileShape,
-    *,
-    pad: bool,
-    caller: str,
-) -> MatrixPadding2D:
-    """Validate a distributed matrix and return its uniform local capacity.
-
-    Args:
-        logical_rows: Global logical row count.
-        logical_cols: Global logical column count.
-        grid: cuSOLVERMp process-grid shape.
-        tile_shape: Native block-cyclic tile dimensions.
-        pad: Whether local shards may be padded to tile-aligned capacity.
-        caller: Routine-specific matrix label used in validation errors.
-
-    Returns:
-        The logical and physical local dimensions required on every rank.
-
-    Raises:
-        ValueError: If a process owns no output tile, the global shape cannot
-            be represented by the JAX sharding, or padding is required while
-            ``pad=False``.
-    """
-    validate_nonempty_block_cyclic_ownership(
-        logical_rows=logical_rows,
-        logical_cols=logical_cols,
-        grid=grid,
-        tile_shape=tile_shape,
-        caller=caller,
-    )
-    try:
-        padding = calculate_2d_padding(
-            logical_rows=logical_rows,
-            logical_cols=logical_cols,
-            grid=grid,
-            tile_shape=tile_shape,
-        )
-    except ValueError as exc:
-        raise ValueError(
-            f"{caller} shape ({logical_rows}, {logical_cols}) must be divisible "
-            f"by process grid ({grid.process_rows}, {grid.process_cols}) "
-            "before local tile padding."
-        ) from exc
-    if not pad and padding.needs_padding:
-        raise ValueError(
-            f"{caller} requires tile-aligned local shards when pad=False. "
-            "Use a tile size that divides both local dimensions or set pad=True."
-        )
-    return padding
 
 
 def make_local_pad_fn(mesh: Mesh, matrix_specs: P, padding: MatrixPadding2D):

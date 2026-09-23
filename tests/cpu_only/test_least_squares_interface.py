@@ -1,4 +1,5 @@
 from functools import partial
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -13,6 +14,7 @@ if not jax.config.jax_enable_x64:
 import jaxmg._least_squares as least_squares_module
 from jaxmg import least_squares, least_squares_shardmap_ctx
 from jaxmg._cusolvermp_status import _CUSOLVERMP_LEAST_SQUARES_STATUS_SIZE
+from jaxmg._layout_types import ProcessGrid, TileShape
 
 
 def _one_rank_mesh() -> Mesh:
@@ -101,74 +103,63 @@ def test_least_squares_rejects_incompatible_solution_sharding(monkeypatch):
 
     monkeypatch.setattr(
         least_squares_module,
-        "infer_mesh_and_matrix_specs",
-        lambda *args, **kwargs: (FakeMesh(), P("pr", None)),
+        "prepare_input_matrix_layout",
+        lambda *args, **kwargs: SimpleNamespace(
+            mesh=FakeMesh(),
+            matrix_specs=P("pr", None),
+            grid=ProcessGrid(2, 1),
+            tile_shape=TileShape(1, 1),
+        ),
     )
     monkeypatch.setattr(
         least_squares_module,
         "infer_rhs_specs",
         lambda *args, **kwargs: P("pr", None),
     )
-    monkeypatch.setattr(
-        least_squares_module,
-        "validate_2d_matrix_specs",
-        lambda *args, **kwargs: (
-            "pr",
-            None,
-            least_squares_module.ProcessGrid(2, 1),
-        ),
-    )
 
     with pytest.raises(ValueError, match="row-axis extent divides N"):
-        least_squares_module._prepare_least_squares_layout(
+        least_squares_module._prepare_least_squares_call(
             jnp.ones((6, 3)),
             jnp.ones((6, 1)),
             1,
-            mesh=None,
-            matrix_specs=None,
+            None,
+            None,
             in_specs=None,
             pad=True,
             caller="least_squares",
         )
 
 
-def test_least_squares_rejects_empty_rhs_process_column(monkeypatch):
+def test_least_squares_accepts_narrow_rhs_on_column_grid(monkeypatch):
     class FakeMesh:
         shape = {"pc": 2}
 
-    grid = least_squares_module.ProcessGrid(1, 2)
     monkeypatch.setattr(
         least_squares_module,
-        "infer_mesh_and_matrix_specs",
-        lambda *args, **kwargs: (FakeMesh(), P(None, "pc")),
+        "prepare_input_matrix_layout",
+        lambda *args, **kwargs: SimpleNamespace(
+            mesh=FakeMesh(),
+            matrix_specs=P(None, "pc"),
+            grid=ProcessGrid(1, 2),
+            tile_shape=TileShape(64, 64),
+        ),
     )
     monkeypatch.setattr(
         least_squares_module,
         "infer_rhs_specs",
         lambda *args, **kwargs: P(None, None),
     )
-    monkeypatch.setattr(
-        least_squares_module,
-        "validate_2d_matrix_specs",
-        lambda *args, **kwargs: (None, "pc", grid),
+    prepared = least_squares_module._prepare_least_squares_call(
+        jnp.ones((192, 96)),
+        jnp.ones((192, 3)),
+        64,
+        None,
+        None,
+        in_specs=None,
+        pad=True,
+        caller="least_squares",
     )
-    monkeypatch.setattr(
-        least_squares_module,
-        "process_rank_map_from_mesh",
-        lambda *args, **kwargs: least_squares_module.ProcessRankMap.row_major(grid),
-    )
-
-    with pytest.raises(ValueError, match=r"least_squares\(B\).*own at least one"):
-        least_squares_module._prepare_least_squares_layout(
-            jnp.ones((192, 96)),
-            jnp.ones((192, 3)),
-            64,
-            mesh=None,
-            matrix_specs=None,
-            in_specs=None,
-            pad=True,
-            caller="least_squares",
-        )
+    assert prepared[-1] == 4
 
 
 @pytest.mark.parametrize(

@@ -18,25 +18,21 @@ from jax import Array
 from jax.sharding import Mesh, PartitionSpec as P
 
 from ._cusolvermp_layout import (
-    _pad_local_2d,
-    _unpad_local_2d,
     cusolvermp_grid_mapping_attr,
-    infer_mesh_and_matrix_specs,
     infer_rhs_specs,
+    make_local_pad_fn,
+    make_local_unpad_fn,
     mesh_axis_size,
     place_rhs_for_native_work,
-    process_rank_map_from_mesh,
+    prepare_input_matrix_layout,
+    prepare_matrix_padding,
     restore_rhs_from_native_work,
     rhs_distribution_columns,
     standard_grid_rank_map_attr,
-    status_specs,
     use_abstract_mesh_decorator,
-    validate_2d_matrix_specs,
 )
 from ._cusolvermp_status import _CUSOLVERMP_LEAST_SQUARES_STATUS_SIZE
-from ._layout_types import MatrixPadding2D, ProcessGrid, ProcessRankMap, TileShape
-from ._layout_types import calculate_2d_padding
-from ._layout_types import validate_nonempty_block_cyclic_ownership
+from ._layout_types import MatrixPadding2D, ProcessGrid, ProcessRankMap
 from ._setup import ensure_init_jaxmg_backend
 
 
@@ -57,8 +53,7 @@ def least_squares(
     The current implementation supports overdetermined or square systems with
     ``M >= N``. For ``A`` of shape ``(M, N)`` and ``B`` of shape ``(M, K)``,
     the returned solution has shape ``(N, K)``. A rank-1 ``B`` is accepted and
-    produces a rank-1 solution. Every process-grid column must own at least one
-    block-cyclic tile of ``B``.
+    produces a rank-1 solution.
 
     Args:
         a (Array): Rank-2 input matrix sharded over a one- or two-axis device
@@ -86,47 +81,35 @@ def least_squares(
         TypeError: If dtypes or sharding specifications are unsupported.
         ValueError: If shapes, tile sizes, or mesh layouts are incompatible.
     """
-    vector_rhs = _validate_least_squares_inputs(a, b, T_A, "least_squares")
-    if vector_rhs:
-        b = jnp.expand_dims(b, axis=1)
-
-    (
-        mesh,
-        matrix_specs,
-        rhs_specs,
-        native_status_specs,
-        grid,
-        rank_map,
-        a_padding,
-        b_padding,
-        b_distribution_cols,
-    ) = _prepare_least_squares_layout(
-        a,
-        b,
-        T_A,
-        mesh=mesh,
-        matrix_specs=matrix_specs,
-        in_specs=in_specs,
-        pad=pad,
-        caller="least_squares",
+    b, vector_rhs, layout, rhs_specs, b_padding, b_distribution_cols = (
+        _prepare_least_squares_call(
+            a,
+            b,
+            T_A,
+            mesh,
+            matrix_specs,
+            in_specs=in_specs,
+            pad=pad,
+            caller="least_squares",
+        )
     )
 
     ensure_init_jaxmg_backend()
     impl = _least_squares_compiled(
-        mesh,
-        matrix_specs,
-        native_status_specs,
-        grid,
-        rank_map,
-        rank_map.cusolvermp_grid_mapping,
-        a_padding,
+        layout.mesh,
+        layout.matrix_specs,
+        layout.native_status_specs,
+        layout.grid,
+        layout.rank_map,
+        layout.rank_map.cusolvermp_grid_mapping,
+        layout.padding,
         b_padding,
         rhs_specs,
         m=int(a.shape[0]),
         n=int(a.shape[1]),
         nrhs=int(b.shape[1]),
         b_distribution_cols=b_distribution_cols,
-        tile_size=int(T_A),
+        tile_size=layout.tile_shape.rows,
         donate=donate,
     )
     _, _, out, native_status = impl(a, b)
@@ -177,49 +160,35 @@ def least_squares_shardmap_ctx(
         TypeError: If dtypes or sharding specifications are unsupported.
         ValueError: If shapes, tile sizes, or mesh layouts are incompatible.
     """
-    vector_rhs = _validate_least_squares_inputs(
-        a, b, T_A, "least_squares_shardmap_ctx"
-    )
-    if vector_rhs:
-        b = jnp.expand_dims(b, axis=1)
-
-    (
-        mesh,
-        matrix_specs,
-        rhs_specs,
-        native_status_specs,
-        grid,
-        rank_map,
-        a_padding,
-        b_padding,
-        b_distribution_cols,
-    ) = _prepare_least_squares_layout(
-        a,
-        b,
-        T_A,
-        mesh=mesh,
-        matrix_specs=matrix_specs,
-        in_specs=in_specs,
-        pad=pad,
-        caller="least_squares_shardmap_ctx",
+    b, vector_rhs, layout, rhs_specs, b_padding, b_distribution_cols = (
+        _prepare_least_squares_call(
+            a,
+            b,
+            T_A,
+            mesh,
+            matrix_specs,
+            in_specs=in_specs,
+            pad=pad,
+            caller="least_squares_shardmap_ctx",
+        )
     )
 
     ensure_init_jaxmg_backend()
     impl = _least_squares_pipeline(
-        mesh,
-        matrix_specs,
-        native_status_specs,
-        grid,
-        rank_map,
-        rank_map.cusolvermp_grid_mapping,
-        a_padding,
+        layout.mesh,
+        layout.matrix_specs,
+        layout.native_status_specs,
+        layout.grid,
+        layout.rank_map,
+        layout.rank_map.cusolvermp_grid_mapping,
+        layout.padding,
         b_padding,
         rhs_specs,
         m=int(a.shape[0]),
         n=int(a.shape[1]),
         nrhs=int(b.shape[1]),
         b_distribution_cols=b_distribution_cols,
-        tile_size=int(T_A),
+        tile_size=layout.tile_shape.rows,
     )
     a_work, b_work, out, native_status = impl(a, b)
     if vector_rhs:
@@ -228,16 +197,34 @@ def least_squares_shardmap_ctx(
     return a_work, b_work, out, native_status
 
 
-_ROW_MAJOR_JAX_LAYOUT = (0, 1)
+def _prepare_least_squares_call(
+    a: Array,
+    b: Array,
+    tile_size: int,
+    mesh: Mesh | None,
+    matrix_specs: P | Tuple[P] | List[P] | None,
+    *,
+    in_specs: P | Tuple[P] | List[P] | None,
+    pad: bool,
+    caller: str,
+):
+    """Validate a least-squares solve and derive its matrix and RHS layouts.
 
+    Preparation proceeds as follows:
 
-def _validate_least_squares_inputs(
-    a: Array, b: Array, tile_size: int, caller: str
-) -> bool:
-    """Validate the public least-squares array contract."""
+    1. Validate A and normalize a vector B to a one-column matrix.
+    2. Require matching supported dtypes, compatible leading dimensions,
+       ``M >= N``, and a positive tile size.
+    3. Resolve the mesh, process grid, rank map, and tile-aligned layout of A.
+    4. Infer the B sharding and verify that it can represent the N-row solution.
+    5. Add any required B routing columns and derive its native work layout.
+    """
     if a.ndim != 2:
         raise ValueError(f"{caller} expects a rank-2 matrix A.")
-    if b.ndim not in (1, 2):
+    vector_rhs = b.ndim == 1
+    if vector_rhs:
+        b = jnp.expand_dims(b, axis=1)
+    if b.ndim != 2:
         raise ValueError(f"{caller} expects a rank-1 or rank-2 solve input B.")
     if a.dtype != b.dtype:
         raise TypeError(f"{caller} requires matching A/B dtypes.")
@@ -251,26 +238,17 @@ def _validate_least_squares_inputs(
         raise ValueError("least_squares currently requires M >= N.")
     if int(tile_size) <= 0:
         raise ValueError("T_A must be positive.")
-    return b.ndim == 1
 
-
-def _prepare_least_squares_layout(
-    a: Array,
-    b: Array,
-    tile_size: int,
-    *,
-    mesh: Mesh | None,
-    matrix_specs: P | Tuple[P] | List[P] | None,
-    in_specs: P | Tuple[P] | List[P] | None,
-    pad: bool,
-    caller: str,
-):
-    """Derive the common matrix, RHS, padding, and process-grid metadata."""
-    mesh, matrix_specs = infer_mesh_and_matrix_specs(
-        a, mesh=mesh, matrix_specs=matrix_specs, in_specs=in_specs
+    layout = prepare_input_matrix_layout(
+        a,
+        tile_size,
+        mesh=mesh,
+        matrix_specs=matrix_specs,
+        in_specs=in_specs,
+        pad=pad,
+        caller=caller,
     )
-    rhs_specs = infer_rhs_specs(b, matrix_specs=matrix_specs)
-    row_axis, col_axis, grid = validate_2d_matrix_specs(mesh, matrix_specs)
+    rhs_specs = infer_rhs_specs(b, matrix_specs=layout.matrix_specs)
     solution_row_partition = rhs_specs._partitions[0]
     solution_row_axes = (
         (solution_row_partition,)
@@ -279,90 +257,30 @@ def _prepare_least_squares_layout(
     )
     solution_row_shards = 1
     for axis in solution_row_axes:
-        solution_row_shards *= mesh_axis_size(mesh, axis)
+        solution_row_shards *= mesh_axis_size(layout.mesh, axis)
     if int(a.shape[1]) % solution_row_shards:
         raise ValueError(
             f"{caller} cannot restore an N={a.shape[1]} solution with "
             f"RHS row sharding {rhs_specs}. Choose an RHS sharding whose "
             "row-axis extent divides N."
         )
-    rank_map = process_rank_map_from_mesh(
-        mesh,
-        row_axis=row_axis,
-        col_axis=col_axis,
-        grid=grid,
-        caller=caller,
-    )
-    native_status_specs = status_specs(row_axis, col_axis, grid)
-    tile_shape = TileShape(rows=int(tile_size), cols=int(tile_size))
-    m, n = map(int, a.shape)
-    validate_nonempty_block_cyclic_ownership(
-        logical_rows=m,
-        logical_cols=n,
-        grid=grid,
-        tile_shape=tile_shape,
-        caller=f"{caller}(A)",
-    )
+    m = int(a.shape[0])
     nrhs = int(b.shape[1])
-    validate_nonempty_block_cyclic_ownership(
-        logical_rows=m,
-        logical_cols=nrhs,
-        grid=grid,
-        tile_shape=tile_shape,
+    b_distribution_cols = rhs_distribution_columns(
+        nrhs, process_cols=layout.grid.process_cols, pad=pad
+    )
+    b_padding = prepare_matrix_padding(
+        m,
+        b_distribution_cols,
+        layout.grid,
+        layout.tile_shape,
+        pad=pad,
         caller=f"{caller}(B)",
     )
-    b_distribution_cols = rhs_distribution_columns(
-        nrhs, process_cols=grid.process_cols, pad=pad
-    )
-    a_padding = calculate_2d_padding(m, n, grid, tile_shape)
-    b_padding = calculate_2d_padding(m, b_distribution_cols, grid, tile_shape)
-    for name, padding in (("A", a_padding), ("B", b_padding)):
-        if not pad and padding.needs_padding:
-            raise ValueError(
-                f"{caller}({name}) requires tile-aligned local shards when "
-                "pad=False. Use a compatible tile size or set pad=True."
-            )
-    return (
-        mesh,
-        matrix_specs,
-        rhs_specs,
-        native_status_specs,
-        grid,
-        rank_map,
-        a_padding,
-        b_padding,
-        b_distribution_cols,
-    )
+    return b, vector_rhs, layout, rhs_specs, b_padding, b_distribution_cols
 
 
-def _make_local_pad_fn(mesh: Mesh, matrix_specs: P, padding: MatrixPadding2D):
-    """Build the shard-local bottom/right padding transform."""
-    if not padding.needs_padding:
-        return lambda block: block
-    return jax.shard_map(
-        partial(
-            _pad_local_2d,
-            row_padding=padding.row_padding_per_process,
-            col_padding=padding.col_padding_per_process,
-        ),
-        mesh=mesh,
-        in_specs=matrix_specs,
-        out_specs=matrix_specs,
-        check_vma=True,
-    )
-
-
-def _make_local_unpad_fn(
-    mesh: Mesh, matrix_specs: P, *, local_rows: int, local_cols: int
-):
-    """Build the shard-local slice transform that removes visible padding."""
-    return jax.shard_map(
-        partial(_unpad_local_2d, local_rows=local_rows, local_cols=local_cols),
-        mesh=mesh,
-        in_specs=matrix_specs,
-        out_specs=matrix_specs,
-        check_vma=True,
-    )
+_ROW_MAJOR_JAX_LAYOUT = (0, 1)
 
 
 @lru_cache(maxsize=None)
@@ -400,14 +318,9 @@ def _least_squares_pipeline(
         caller="cusolvermp_gels",
     )
     b_distribution_padding = int(b_distribution_cols) - int(nrhs)
-    pad_a = _make_local_pad_fn(mesh, matrix_specs, a_padding)
-    pad_b = _make_local_pad_fn(mesh, matrix_specs, b_padding)
-    unpad_b = _make_local_unpad_fn(
-        mesh,
-        matrix_specs,
-        local_rows=b_padding.local_logical_rows,
-        local_cols=b_padding.local_logical_cols,
-    )
+    pad_a = make_local_pad_fn(mesh, matrix_specs, a_padding)
+    pad_b = make_local_pad_fn(mesh, matrix_specs, b_padding)
+    unpad_b = make_local_unpad_fn(mesh, matrix_specs, b_padding)
 
     def gels_ffi(_a: Array, _b: Array) -> tuple[Array, Array, Array]:
         """Call fused native redistribution and ``cusolverMpGels``."""
