@@ -69,17 +69,19 @@ def main() -> None:
         diagonal = jnp.linspace(1.0, 2.0, n, dtype=DTYPE)
         a = jnp.zeros((m, n), dtype=DTYPE)
         a = a.at[jnp.arange(n), jnp.arange(n)].set(diagonal)
-        return jax.reshard(a, matrix_sharding), diagonal
+        expected_q = jax.reshard(jnp.eye(m, n, dtype=DTYPE), matrix_sharding)
+        expected_r = jax.reshard(jnp.diag(diagonal), matrix_sharding)
+        return jax.reshard(a, matrix_sharding), expected_q, expected_r
 
-    a, expected_r_diagonal = make_matrix()
+    a, expected_q, expected_r = make_matrix()
 
     # Run the distributed JAXMg reduced QR decomposition.
     q, r = qr(a, T_A=T_A, mesh=mesh, matrix_specs=matrix_specs)
     r.block_until_ready()
 
     # Validate both factors against the known solution.
-    correct = jnp.allclose(q.conj().T @ q, jnp.eye(n, dtype=DTYPE)) & jnp.allclose(
-        jnp.diag(r), expected_r_diagonal
+    correct = jnp.allclose(jnp.abs(q), expected_q) & jnp.allclose(
+        jnp.abs(r), expected_r
     )
     correct.block_until_ready()
     if jax.process_index() == 0:

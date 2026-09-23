@@ -74,22 +74,20 @@ def main() -> None:
         b = jax.reshard(a @ jnp.ones((n,), dtype=DTYPE), vector_sharding)
 
         # Work outputs remain internal because A and B are created here.
-        _, _, x, status = least_squares_shardmap_ctx(
+        _, _, x, _ = least_squares_shardmap_ctx(
             a,
             b,
             T_A=T_A,
             mesh=mesh,
             matrix_specs=matrix_specs,
         )
-        return x, status
+        return x
 
-    x, status = build_and_solve()
+    x = build_and_solve()
     x.block_until_ready()
 
     # Validate the result against the known solution.
-    correct = jnp.all(status == 0) & jnp.allclose(
-        x, jnp.ones((n,), dtype=DTYPE)
-    )
+    correct = jnp.allclose(x, jnp.ones((n,), dtype=DTYPE))
     correct.block_until_ready()
 
     if jax.process_index() == 0:

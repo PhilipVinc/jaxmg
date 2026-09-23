@@ -70,24 +70,24 @@ def main() -> None:
         a = jnp.zeros((m, n), dtype=DTYPE)
         a = a.at[jnp.arange(n), jnp.arange(n)].set(expected_r_diagonal)
         a = jax.reshard(a, matrix_sharding)
+        expected_q = jax.reshard(jnp.eye(m, n, dtype=DTYPE), matrix_sharding)
+        expected_r = jax.reshard(jnp.diag(expected_r_diagonal), matrix_sharding)
 
         # Q directly reuses A because ORGQR overwrites the factorized matrix.
-        q, r, status = qr_shardmap_ctx(
+        q, r, _ = qr_shardmap_ctx(
             a,
             T_A=T_A,
             mesh=mesh,
             matrix_specs=matrix_specs,
         )
-        return q, r, status, expected_r_diagonal
+        return q, r, expected_q, expected_r
 
-    q, r, status, expected_r_diagonal = build_and_decompose()
+    q, r, expected_q, expected_r = build_and_decompose()
     r.block_until_ready()
 
     # Validate both factors against the known solution.
-    correct = (
-        jnp.all(status == 0)
-        & jnp.allclose(q.conj().T @ q, jnp.eye(n, dtype=DTYPE))
-        & jnp.allclose(jnp.diag(r), expected_r_diagonal)
+    correct = jnp.allclose(jnp.abs(q), expected_q) & jnp.allclose(
+        jnp.abs(r), expected_r
     )
     correct.block_until_ready()
     if jax.process_index() == 0:

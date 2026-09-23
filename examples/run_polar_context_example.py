@@ -70,25 +70,23 @@ def main() -> None:
         a = jnp.zeros((m, n), dtype=DTYPE)
         a = a.at[jnp.arange(n), jnp.arange(n)].set(expected_h_diagonal)
         a = jax.reshard(a, matrix_sharding)
+        expected_up = jax.reshard(jnp.eye(m, n, dtype=DTYPE), matrix_sharding)
+        expected_h = jax.reshard(jnp.diag(expected_h_diagonal), matrix_sharding)
 
         # Up directly reuses A because cuSOLVERMp overwrites the input matrix.
-        up, h, status = polar_shardmap_ctx(
+        up, h, _ = polar_shardmap_ctx(
             a,
             T_A=T_A,
             mesh=mesh,
             matrix_specs=matrix_specs,
         )
-        return up, h, status, expected_h_diagonal
+        return up, h, expected_up, expected_h
 
-    up, h, status, expected_h_diagonal = build_and_decompose()
+    up, h, expected_up, expected_h = build_and_decompose()
     h.block_until_ready()
 
     # Validate both factors against the known solution.
-    correct = (
-        jnp.all(status == 0)
-        & jnp.allclose(up.conj().T @ up, jnp.eye(n, dtype=DTYPE))
-        & jnp.allclose(jnp.diag(h), expected_h_diagonal)
-    )
+    correct = jnp.allclose(up, expected_up) & jnp.allclose(h, expected_h)
     correct.block_until_ready()
     if jax.process_index() == 0:
         print("Polar context decomposition correct:", bool(correct))

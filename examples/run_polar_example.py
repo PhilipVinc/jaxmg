@@ -69,19 +69,18 @@ def main() -> None:
         diagonal = jnp.linspace(1.0, 2.0, n, dtype=DTYPE)
         a = jnp.zeros((m, n), dtype=DTYPE)
         a = a.at[jnp.arange(n), jnp.arange(n)].set(diagonal)
-        return jax.reshard(a, matrix_sharding), diagonal
+        expected_up = jax.reshard(jnp.eye(m, n, dtype=DTYPE), matrix_sharding)
+        expected_h = jax.reshard(jnp.diag(diagonal), matrix_sharding)
+        return jax.reshard(a, matrix_sharding), expected_up, expected_h
 
-    a, expected_h_diagonal = make_matrix()
+    a, expected_up, expected_h = make_matrix()
 
     # Run the distributed JAXMg polar decomposition.
     up, h = polar(a, T_A=T_A, mesh=mesh, matrix_specs=matrix_specs)
     h.block_until_ready()
 
     # Validate both factors against the known solution.
-    correct = (
-        jnp.allclose(up.conj().T @ up, jnp.eye(n, dtype=DTYPE))
-        & jnp.allclose(jnp.diag(h), expected_h_diagonal)
-    )
+    correct = jnp.allclose(up, expected_up) & jnp.allclose(h, expected_h)
     correct.block_until_ready()
     if jax.process_index() == 0:
         print("Polar decomposition correct:", bool(correct))
