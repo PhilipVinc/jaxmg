@@ -37,6 +37,19 @@ def test_least_squares_column_grid():
     run_gpu_test(GPU_TEST, 2, "column_grid", "float32")
 
 
+@pytest.mark.multi_gpu
+@pytest.mark.parametrize("interface", ("public", "context"))
+def test_least_squares_column_grid_vector(interface):
+    """Solve one right-hand side across two process-grid columns."""
+    run_gpu_test(
+        GPU_TEST,
+        2,
+        "column_grid_vector",
+        "float32",
+        interface=interface,
+    )
+
+
 @pytest.mark.single_gpu
 def test_least_squares_square_aligned():
     """Exercise the square boundary without local padding."""
