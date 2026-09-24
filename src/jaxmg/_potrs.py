@@ -73,10 +73,11 @@ def potrs(
         T_A (int): Square tile width used by cuSOLVERMp. Each local shard
             dimension must be a multiple of ``T_A`` after padding.
         mesh (Mesh or AbstractMesh, optional): JAX mesh used for ``jax.shard_map``.
-            If omitted, inferred from ``a.sharding.mesh``.
+            If omitted, read off the sharding of ``a`` (its type inside
+            ``jax.jit``), or taken from the context mesh.
         matrix_specs (PartitionSpec or tuple/list[PartitionSpec], optional):
-            PartitionSpec describing the matrix sharding. If omitted, inferred
-            from ``a.sharding.spec``.
+            PartitionSpec describing the matrix sharding. If omitted, read
+            off the sharding of ``a``, defaulting to the mesh axes in order.
         in_specs: Backwards-compatible alias for ``matrix_specs``.
         return_status (bool, optional): If True return ``(x, status)`` where
             ``status`` is the native per-rank diagnostic vector. If False
@@ -246,10 +247,11 @@ def potrs_shardmap_ctx(
         T_A (int): Square tile width used by cuSOLVERMp. Each local shard
             dimension must be a multiple of ``T_A`` after padding.
         mesh (Mesh or AbstractMesh, optional): JAX mesh used for ``jax.shard_map``.
-            If omitted, inferred from ``a.sharding.mesh``.
+            If omitted, read off the sharding of ``a`` (its type inside
+            ``jax.jit``), or taken from the context mesh.
         matrix_specs (PartitionSpec or tuple/list[PartitionSpec], optional):
-            PartitionSpec describing the matrix sharding. If omitted, inferred
-            from ``a.sharding.spec``.
+            PartitionSpec describing the matrix sharding. If omitted, read
+            off the sharding of ``a``, defaulting to the mesh axes in order.
         in_specs: Backwards-compatible alias for ``matrix_specs``.
         return_logdet (bool, optional): If True return the replicated Cholesky
             log determinant between the solution and status outputs. Default
