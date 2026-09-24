@@ -14,6 +14,7 @@ from functools import lru_cache, partial
 from typing import List, Tuple
 
 import jax
+import numpy as np
 import jax.numpy as jnp
 from jax import Array
 from jax.sharding import Mesh, PartitionSpec as P
@@ -21,16 +22,14 @@ from jax.sharding import Mesh, PartitionSpec as P
 from ._cusolvermp_layout import (
     _pad_local_2d,
     _unpad_local_2d,
-    cusolvermp_grid_mapping_attr,
     infer_mesh_and_matrix_specs,
     use_abstract_mesh_decorator,
-    process_rank_map_from_mesh,
-    standard_grid_rank_map_attr,
+    partition_slots_from_mesh,
     status_specs,
     validate_2d_matrix_specs,
 )
 from ._cusolvermp_status import _CUSOLVERMP_SYEVD_STATUS_SIZE
-from ._layout_types import MatrixPadding2D, ProcessGrid, ProcessRankMap, TileShape
+from ._layout_types import MatrixPadding2D, ProcessGrid, TileShape
 from ._layout_types import calculate_2d_padding
 from ._layout_types import validate_nonempty_block_cyclic_ownership
 from ._setup import ensure_init_jaxmg_backend
@@ -128,7 +127,7 @@ def syevd(
         in_specs=in_specs,
     )
     row_axis, col_axis, grid = validate_2d_matrix_specs(mesh, matrix_specs)
-    rank_map = process_rank_map_from_mesh(
+    partition_slots = partition_slots_from_mesh(
         mesh,
         row_axis=row_axis,
         col_axis=col_axis,
@@ -159,8 +158,7 @@ def syevd(
         matrix_specs,
         native_status_specs,
         grid,
-        rank_map,
-        rank_map.cusolvermp_grid_mapping,
+        partition_slots,
         a_padding,
         n=a.shape[0],
         tile_size=tile_shape.rows,
@@ -274,7 +272,7 @@ def syevd_shardmap_ctx(
         in_specs=in_specs,
     )
     row_axis, col_axis, grid = validate_2d_matrix_specs(mesh, matrix_specs)
-    rank_map = process_rank_map_from_mesh(
+    partition_slots = partition_slots_from_mesh(
         mesh,
         row_axis=row_axis,
         col_axis=col_axis,
@@ -305,8 +303,7 @@ def syevd_shardmap_ctx(
         matrix_specs,
         native_status_specs,
         grid,
-        rank_map,
-        rank_map.cusolvermp_grid_mapping,
+        partition_slots,
         a_padding,
         n=a.shape[0],
         tile_size=tile_shape.rows,
@@ -425,8 +422,7 @@ def _syevd_pipeline(
     matrix_specs: P,
     native_status_specs: P,
     grid: ProcessGrid,
-    rank_map: ProcessRankMap,
-    grid_mapping: int,
+    partition_slots: tuple[int, ...],
     a_padding: MatrixPadding2D,
     *,
     n: int,
@@ -437,26 +433,14 @@ def _syevd_pipeline(
     """Build and cache the unjitted JAX-visible SYEVD execution pipeline.
 
     The cache key is the static solver configuration: mesh, sharding spec,
-    process-grid shape, rank mapping, padded local shape, matrix size, tile
+    process-grid shape, partition slots, padded local shape, matrix size, tile
     size, dtype, and output mode. Reusing this factory avoids rebuilding the
     same ``jax.shard_map`` structure for repeated eigensolves with identical
     layout metadata.
     """
     process_rows = grid.process_rows
     process_cols = grid.process_cols
-    rank_array = standard_grid_rank_map_attr(
-        rank_map,
-        process_rows=process_rows,
-        process_cols=process_cols,
-        caller="cusolvermp_syevd",
-    )
-    grid_mapping = cusolvermp_grid_mapping_attr(
-        rank_map,
-        grid_mapping,
-        process_rows=process_rows,
-        process_cols=process_cols,
-        caller="cusolvermp_syevd",
-    )
+    slots_attr = np.asarray(partition_slots, dtype=np.int64)
     pad_a = _make_local_pad_fn(mesh, matrix_specs, a_padding)
     if return_eigenvectors:
         unpad_vectors = _make_local_unpad_fn(
@@ -517,8 +501,7 @@ def _syevd_pipeline(
             ),
             process_rows=process_rows,
             process_cols=process_cols,
-            grid_mapping=grid_mapping,
-            rank_map=rank_array,
+            partition_slots=slots_attr,
             n=int(n),
             tile_size=int(tile_size),
         )
@@ -553,8 +536,7 @@ def _syevd_compiled(
     matrix_specs: P,
     native_status_specs: P,
     grid: ProcessGrid,
-    rank_map: ProcessRankMap,
-    grid_mapping: int,
+    partition_slots: tuple[int, ...],
     a_padding: MatrixPadding2D,
     *,
     n: int,
@@ -569,8 +551,7 @@ def _syevd_compiled(
         matrix_specs,
         native_status_specs,
         grid,
-        rank_map,
-        grid_mapping,
+        partition_slots,
         a_padding,
         n=n,
         tile_size=tile_size,

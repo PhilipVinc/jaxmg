@@ -13,6 +13,7 @@ from functools import lru_cache, partial
 from typing import List, Tuple, Union
 
 import jax
+import numpy as np
 import jax.numpy as jnp
 from jax import Array
 from jax.sharding import Mesh, PartitionSpec as P
@@ -20,20 +21,18 @@ from jax.sharding import Mesh, PartitionSpec as P
 from ._cusolvermp_layout import (
     _pad_local_2d,
     _unpad_local_2d,
-    cusolvermp_grid_mapping_attr,
     infer_mesh_and_matrix_specs,
     infer_rhs_specs,
     use_abstract_mesh_decorator,
     place_rhs_for_native_work,
-    process_rank_map_from_mesh,
+    partition_slots_from_mesh,
     restore_rhs_from_native_work,
     rhs_distribution_columns,
-    standard_grid_rank_map_attr,
     status_specs,
     validate_2d_matrix_specs,
 )
 from ._cusolvermp_status import _CUSOLVERMP_POTRS_STATUS_SIZE
-from ._layout_types import MatrixPadding2D, ProcessGrid, ProcessRankMap, TileShape
+from ._layout_types import MatrixPadding2D, ProcessGrid, TileShape
 from ._layout_types import calculate_2d_padding
 from ._layout_types import validate_nonempty_block_cyclic_ownership
 from ._setup import ensure_init_jaxmg_backend
@@ -138,7 +137,7 @@ def potrs(
     )
     rhs_specs = infer_rhs_specs(b, matrix_specs=matrix_specs)
     row_axis, col_axis, grid = validate_2d_matrix_specs(mesh, matrix_specs)
-    rank_map = process_rank_map_from_mesh(
+    partition_slots = partition_slots_from_mesh(
         mesh,
         row_axis=row_axis,
         col_axis=col_axis,
@@ -183,8 +182,7 @@ def potrs(
         matrix_specs,
         native_status_specs,
         grid,
-        rank_map,
-        rank_map.cusolvermp_grid_mapping,
+        partition_slots,
         a_padding,
         b_padding,
         rhs_specs,
@@ -306,7 +304,7 @@ def potrs_shardmap_ctx(
     )
     rhs_specs = infer_rhs_specs(b, matrix_specs=matrix_specs)
     row_axis, col_axis, grid = validate_2d_matrix_specs(mesh, matrix_specs)
-    rank_map = process_rank_map_from_mesh(
+    partition_slots = partition_slots_from_mesh(
         mesh,
         row_axis=row_axis,
         col_axis=col_axis,
@@ -351,8 +349,7 @@ def potrs_shardmap_ctx(
         matrix_specs,
         native_status_specs,
         grid,
-        rank_map,
-        rank_map.cusolvermp_grid_mapping,
+        partition_slots,
         a_padding,
         b_padding,
         rhs_specs,
@@ -468,8 +465,7 @@ def _potrs_pipeline(
     matrix_specs: P,
     native_status_specs: P,
     grid: ProcessGrid,
-    rank_map: ProcessRankMap,
-    grid_mapping: int,
+    partition_slots: tuple[int, ...],
     a_padding: MatrixPadding2D,
     b_padding: MatrixPadding2D,
     rhs_specs: P,
@@ -489,19 +485,7 @@ def _potrs_pipeline(
     """
     process_rows = grid.process_rows
     process_cols = grid.process_cols
-    rank_array = standard_grid_rank_map_attr(
-        rank_map,
-        process_rows=process_rows,
-        process_cols=process_cols,
-        caller="cusolvermp_potrs",
-    )
-    grid_mapping = cusolvermp_grid_mapping_attr(
-        rank_map,
-        grid_mapping,
-        process_rows=process_rows,
-        process_cols=process_cols,
-        caller="cusolvermp_potrs",
-    )
+    slots_attr = np.asarray(partition_slots, dtype=np.int64)
     b_distribution_padding = int(b_distribution_cols) - int(nrhs)
     pad_a = _make_local_pad_fn(mesh, matrix_specs, a_padding)
     pad_b = _make_local_pad_fn(mesh, matrix_specs, b_padding)
@@ -516,7 +500,7 @@ def _potrs_pipeline(
         """Call fused native redistribution and ``potrf/potrs`` on one shard.
 
         The closure captures only static metadata that XLA needs at trace time:
-        process-grid shape, rank map, logical dimensions, and tile size.  The
+        process-grid shape, partition slots, logical dimensions, and tile size.  The
         actual matrix buffers remain donated JAX arrays and enter native code
         through ``jax.ffi.ffi_call``.
         """
@@ -565,8 +549,7 @@ def _potrs_pipeline(
             ),
             process_rows=process_rows,
             process_cols=process_cols,
-            grid_mapping=grid_mapping,
-            rank_map=rank_array,
+            partition_slots=slots_attr,
             n=int(n),
             nrhs=int(nrhs),
             b_distribution_cols=int(b_distribution_cols),
@@ -633,8 +616,7 @@ def _potrs_compiled(
     matrix_specs: P,
     native_status_specs: P,
     grid: ProcessGrid,
-    rank_map: ProcessRankMap,
-    grid_mapping: int,
+    partition_slots: tuple[int, ...],
     a_padding: MatrixPadding2D,
     b_padding: MatrixPadding2D,
     rhs_specs: P,
@@ -652,8 +634,7 @@ def _potrs_compiled(
         matrix_specs,
         native_status_specs,
         grid,
-        rank_map,
-        grid_mapping,
+        partition_slots,
         a_padding,
         b_padding,
         rhs_specs,
