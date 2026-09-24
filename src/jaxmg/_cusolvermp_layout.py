@@ -6,7 +6,7 @@ by the POTRS, LU-solve, and SYEVD wrappers:
 1. infer and validate the JAX ``Mesh`` and matrix ``PartitionSpec``;
 2. place solve inputs in the regular native work layout and restore outputs to
    their user-facing sharding;
-3. map JAX devices onto a cuSOLVERMp-supported process grid; and
+3. map the partitions of the JAX mesh onto the cuSOLVERMp process grid; and
 4. describe status-buffer sharding and local tile-capacity padding.
 
 All GPU-to-GPU redistribution and all cuSOLVERMp calls are implemented in
@@ -21,12 +21,9 @@ import jax.numpy as jnp
 import numpy as np
 import jax
 from jax import Array
-from jax.sharding import AxisType, Mesh, NamedSharding, PartitionSpec as P
+from jax.sharding import AbstractMesh, AxisType, Mesh, NamedSharding, PartitionSpec as P
 
-from ._layout_types import (
-    ProcessGrid,
-    ProcessRankMap,
-)
+from ._layout_types import ProcessGrid
 
 
 # -----------------------------------------------------------------------------
@@ -77,7 +74,7 @@ def normalize_matrix_specs(
     return specs
 
 
-def mesh_axis_size(mesh: Mesh, axis_name: str) -> int:
+def mesh_axis_size(mesh: Mesh | AbstractMesh, axis_name: str) -> int:
     """Return the number of devices along a named JAX mesh axis.
 
     Args:
@@ -96,7 +93,7 @@ def mesh_axis_size(mesh: Mesh, axis_name: str) -> int:
         raise ValueError(f"mesh does not contain axis {axis_name!r}.") from exc
 
 
-def use_abstract_mesh_decorator(mesh: Mesh):
+def use_abstract_mesh_decorator(mesh: Mesh | AbstractMesh):
     """The decorated function is called within the context of ``use_abstract_mesh``.
 
     Needed because ``jax.shard_map`` rejects a mesh that is not the context mesh,
@@ -115,7 +112,7 @@ def use_abstract_mesh_decorator(mesh: Mesh):
 
 
 def validate_2d_matrix_specs(
-    mesh: Mesh,
+    mesh: Mesh | AbstractMesh,
     matrix_specs: P,
 ) -> tuple[str | None, str | None, ProcessGrid]:
     """Validate and describe a two-dimensional matrix sharding.
@@ -223,7 +220,7 @@ def rhs_distribution_columns(nrhs: int, *, process_cols: int, pad: bool) -> int:
 def _place_for_matrix_axis_mode(
     value: Array,
     *,
-    mesh: Mesh,
+    mesh: Mesh | AbstractMesh,
     matrix_specs: P,
     target_specs: P,
 ) -> Array:
@@ -272,7 +269,7 @@ def _place_for_matrix_axis_mode(
 def place_rhs_for_native_work(
     rhs: Array,
     *,
-    mesh: Mesh,
+    mesh: Mesh | AbstractMesh,
     matrix_specs: P,
 ) -> Array:
     """Place an RHS in the matrix's native work sharding.
@@ -328,7 +325,7 @@ def restore_rhs_from_native_work(
     rhs: Array,
     *,
     rhs_specs: P,
-    mesh: Mesh,
+    mesh: Mesh | AbstractMesh,
     matrix_specs: P,
 ) -> Array:
     """Restore a solved RHS to its user-facing sharding before shape slicing.
@@ -362,83 +359,30 @@ def restore_rhs_from_native_work(
 
 
 # -----------------------------------------------------------------------------
-# Process-grid rank mapping
+# Process-grid slots
 # -----------------------------------------------------------------------------
 
 
-def _device_process_index(device) -> int:
-    """Return the host-process index that owns a JAX device.
-
-    JAX versions expose ``process_index`` either as an integer property or a
-    zero-argument method, so both forms are accepted.
-
-    Raises:
-        AttributeError: If the device exposes no process index.
-    """
-    value = getattr(device, "process_index", None)
-    if callable(value):
-        return int(value())
-    if value is None:
-        raise AttributeError(f"device {device!r} has no process_index")
-    return int(value)
-
-
-def _device_id(device) -> int:
-    """Return JAX's stable integer device id for communicator ordering.
-
-    Raises:
-        AttributeError: If the device exposes no integer ``id``.
-    """
-    value = getattr(device, "id", None)
-    if value is None:
-        raise AttributeError(f"device {device!r} has no id")
-    return int(value)
-
-
-def _device_local_hardware_id(device) -> int:
-    """Return the local GPU hardware id used to disambiguate device order.
-
-    JAX does not expose ``local_hardware_id`` on every backend. In that case,
-    the globally stable device id provides the fallback ordering key.
-    """
-    value = getattr(device, "local_hardware_id", None)
-    if value is None:
-        return _device_id(device)
-    return int(value)
-
-
-def _device_rank_key(device) -> tuple[int, int, int]:
-    """Return the device ordering key used to model XLA communicator ranks.
-
-    Devices are ordered first by host process, then by JAX device id, and
-    finally by local hardware id. This matches the regular rank layouts accepted
-    by the native cuSOLVERMp process grid.
-    """
-    return (
-        _device_process_index(device),
-        _device_id(device),
-        _device_local_hardware_id(device),
-    )
-
-
-def process_rank_map_from_mesh(
-    mesh: Mesh,
+def partition_slots_from_mesh(
+    mesh: Mesh | AbstractMesh,
     *,
     row_axis: str | None,
     col_axis: str | None,
     grid: ProcessGrid,
     caller: str,
-) -> ProcessRankMap:
-    """Map JAX mesh coordinates to cuSOLVERMp communicator ranks.
+) -> tuple[int, ...]:
+    """Map every SPMD partition of ``mesh`` to its cuSOLVERMp process-grid slot.
 
-    Users construct meshes with normal JAX APIs.  JAXMg inspects the resulting
-    device array and accepts it only when the process-grid coordinates match a
-    cuSOLVERMp-supported row-major or column-major rank mapping.  Arbitrary
-    mesh permutations are rejected before native code runs, because cuSOLVERMp
-    cannot represent those permutations in its grid descriptor.
+    Partition ``p`` is the shard that XLA's ``partition-id`` reports as ``p``,
+    i.e. the one at the row-major position ``p`` of the mesh. Its coordinates
+    along each mesh axis are computed as :func:`jax.lax.axis_index` does, so
+    only the axis names and sizes of the mesh are needed, and no concrete
+    devices. The native backend resolves the physical device and communicator
+    rank of each partition at run time from XLA's device assignment, exactly
+    like XLA resolves ``partition-id``.
 
     Args:
-        mesh: JAX mesh containing the process-grid devices.
+        mesh: JAX mesh, concrete or abstract, containing the process grid.
         row_axis: Mesh axis mapped to cuSOLVERMp process rows, or ``None`` for a
             degenerate ``1 x P_c`` grid.
         col_axis: Mesh axis mapped to cuSOLVERMp process columns, or ``None``
@@ -447,211 +391,58 @@ def process_rank_map_from_mesh(
         caller: Routine name included in validation errors.
 
     Returns:
-        A process-grid-slot to communicator-rank mapping in row-major slot
-        order.
+        ``slots[p] = process_row * process_cols + process_col`` for every
+        partition ``p``.
 
     Raises:
-        ValueError: If the matrix axes are invalid, the mesh shape differs from
-            ``grid``, devices are duplicated, or device order is not one of
-            cuSOLVERMp's supported grid mappings.
+        ValueError: If the matrix axes are invalid, or the mesh contains axes
+            that are not part of the process grid.
     """
     axis_names = tuple(mesh.axis_names)
+    axis_sizes = tuple(int(size) for size in mesh.axis_sizes)
     matrix_axes = tuple(axis for axis in (row_axis, col_axis) if axis is not None)
     if any(axis not in axis_names for axis in matrix_axes):
         raise ValueError("matrix sharding axes must be present in the mesh.")
     if row_axis is not None and row_axis == col_axis:
         raise ValueError("matrix row and column axes must be distinct.")
-
-    devices = np.asarray(mesh.devices, dtype=object)
-    if devices.ndim != len(axis_names):
-        raise ValueError(
-            "mesh device array rank does not match the number of mesh axes."
-        )
-    if devices.size != grid.num_processes:
+    num_partitions = int(np.prod(axis_sizes, dtype=np.int64))
+    if num_partitions != grid.num_processes:
         raise ValueError(
             f"{caller} currently expects the JAX mesh to contain exactly the "
             "axes used by the cuSOLVERMp process grid. Got "
-            f"{devices.size} mesh devices for a {grid.process_rows} x "
+            f"{num_partitions} mesh devices for a {grid.process_rows} x "
             f"{grid.process_cols} process grid."
         )
 
-    # A degenerate grid leaves one matrix dimension unsharded: the mesh has no
-    # axis for it, so neither array below carries that extent-one dimension.
-    positions = tuple(axis_names.index(axis) for axis in matrix_axes)
-    devices_by_matrix_axis = np.moveaxis(devices, positions, range(len(positions)))
-    grid_shape = (grid.process_rows, grid.process_cols)
-    expected_shape = tuple(
-        size
-        for axis, size in zip((row_axis, col_axis), grid_shape)
-        if axis is not None
-    )
-    if devices_by_matrix_axis.shape != expected_shape:
-        raise ValueError(
-            "mesh device grid does not match the matrix process-grid shape "
-            f"{expected_shape}, got {devices_by_matrix_axis.shape}."
-        )
+    coords = np.unravel_index(np.arange(num_partitions), axis_sizes)
 
-    process_devices = list(devices_by_matrix_axis.reshape(-1))
-    communicator_devices = sorted(process_devices, key=_device_rank_key)
-    rank_by_device = {
-        _device_rank_key(device): rank
-        for rank, device in enumerate(communicator_devices)
-    }
-    if len(rank_by_device) != len(process_devices):
-        raise ValueError("mesh contains duplicate process devices.")
+    def coord(axis: str | None) -> np.ndarray:
+        if axis is None:
+            return np.zeros(num_partitions, dtype=np.int64)
+        return np.asarray(coords[axis_names.index(axis)], dtype=np.int64)
 
-    rank_map = ProcessRankMap(
-        grid=grid,
-        ranks=tuple(
-            rank_by_device[_device_rank_key(device)] for device in process_devices
-        ),
-    )
-    rank_map.require_cusolvermp_grid_mapping(caller)
-    return rank_map
-
-
-def standard_grid_rank_map_attr(
-    rank_map,
-    *,
-    process_rows: int,
-    process_cols: int,
-    caller: str,
-) -> np.ndarray:
-    """Validate and encode a process-slot to communicator-rank mapping.
-
-    Args:
-        rank_map: ``ProcessRankMap``, one-dimensional rank sequence, or ``None``
-            for row-major identity order.
-        process_rows: Number of process-grid rows.
-        process_cols: Number of process-grid columns.
-        caller: Routine name included in validation errors.
-
-    Returns:
-        A contiguous ``int64`` array indexed by row-major process-grid slot.
-
-    Raises:
-        ValueError: If the map has the wrong shape or is not a permutation of
-            all communicator ranks.
-        NotImplementedError: If the permutation is neither cuSOLVERMp row-major
-            nor column-major order.
-    """
-    process_rows = int(process_rows)
-    process_cols = int(process_cols)
-    num_ranks = process_rows * process_cols
-    if rank_map is None:
-        rank_array = np.arange(num_ranks, dtype=np.int64)
-    elif hasattr(rank_map, "ranks"):
-        rank_array = np.asarray(rank_map.ranks, dtype=np.int64)
-    else:
-        rank_array = np.asarray(rank_map, dtype=np.int64)
-    if rank_array.shape != (num_ranks,):
-        raise ValueError(
-            f"{caller} rank_map must have shape ({num_ranks},), got "
-            f"{rank_array.shape}."
-        )
-    if sorted(rank_array.tolist()) != list(range(num_ranks)):
-        raise ValueError(
-            f"{caller} rank_map must be a permutation of [0, {num_ranks})."
-        )
-
-    row_major = np.arange(num_ranks, dtype=np.int64)
-    column_major = np.asarray(
-        [
-            process_col * process_rows + process_row
-            for process_row in range(process_rows)
-            for process_col in range(process_cols)
-        ],
-        dtype=np.int64,
-    )
-    if not np.array_equal(rank_array, row_major) and not np.array_equal(
-        rank_array, column_major
-    ):
-        raise NotImplementedError(
-            f"{caller} supports only row-major or column-major cuSOLVERMp "
-            f"rank maps. Got {rank_array.tolist()}."
-        )
-    return np.ascontiguousarray(rank_array)
-
-
-def cusolvermp_grid_mapping_attr(
-    rank_map,
-    grid_mapping,
-    *,
-    process_rows: int,
-    process_cols: int,
-    caller: str,
-) -> int:
-    """Resolve cuSOLVERMp's grid-mapping enum for a validated rank map.
-
-    NVIDIA defines column-major mapping as ``0`` and row-major mapping as ``1``.
-    When ``grid_mapping`` is omitted, the value is inferred from ``rank_map``.
-
-    Args:
-        rank_map: Process-slot to communicator-rank mapping.
-        grid_mapping: Explicit cuSOLVERMp enum value, or ``None`` to infer it.
-        process_rows: Number of process-grid rows.
-        process_cols: Number of process-grid columns.
-        caller: Routine name included in validation errors.
-
-    Returns:
-        ``0`` for column-major rank order or ``1`` for row-major rank order.
-
-    Raises:
-        ValueError: If the enum is unsupported or disagrees with ``rank_map``.
-        NotImplementedError: If ``rank_map`` is not a supported dense order.
-    """
-    rank_array = standard_grid_rank_map_attr(
-        rank_map,
-        process_rows=process_rows,
-        process_cols=process_cols,
-        caller=caller,
-    )
-    if grid_mapping is None and hasattr(rank_map, "cusolvermp_grid_mapping"):
-        grid_mapping = rank_map.cusolvermp_grid_mapping
-    if grid_mapping is None:
-        row_major = np.arange(int(process_rows) * int(process_cols), dtype=np.int64)
-        grid_mapping = 1 if np.array_equal(rank_array, row_major) else 0
-    grid_mapping = int(grid_mapping)
-    if grid_mapping not in (0, 1):
-        raise ValueError(
-            f"{caller} grid_mapping must be 0 (column-major) or 1 (row-major), "
-            f"got {grid_mapping}."
-        )
-
-    expected = (
-        np.arange(int(process_rows) * int(process_cols), dtype=np.int64)
-        if grid_mapping == 1
-        else np.asarray(
-            [
-                process_col * int(process_rows) + process_row
-                for process_row in range(int(process_rows))
-                for process_col in range(int(process_cols))
-            ],
-            dtype=np.int64,
-        )
-    )
-    if not np.array_equal(rank_array, expected):
-        raise ValueError(
-            f"{caller} rank_map does not match grid_mapping={grid_mapping}."
-        )
-    return grid_mapping
+    slots = coord(row_axis) * grid.process_cols + coord(col_axis)
+    return tuple(int(slot) for slot in slots)
 
 
 def infer_mesh_and_matrix_specs(
     a: Array,
     *,
-    mesh: Mesh | None,
+    mesh: Mesh | AbstractMesh | None,
     matrix_specs: P | tuple[P, ...] | list[P] | None,
     in_specs: P | tuple[P, ...] | list[P] | None = None,
-) -> tuple[Mesh, P]:
+) -> tuple[Mesh | AbstractMesh, P]:
     """Resolve the JAX mesh and matrix sharding used by a solver call.
 
     Explicit ``mesh`` and ``matrix_specs`` values take precedence. Any missing
     value is inferred from the input matrix when it carries ``NamedSharding``.
+    The mesh may be abstract: devices are resolved by the native backend at run
+    time, so inside :func:`jax.jit` the abstract context mesh can be passed.
 
     Args:
         a: Input matrix whose named sharding may provide the mesh contract.
-        mesh: Explicit JAX mesh, or ``None`` to infer it from ``a``.
+        mesh: Explicit JAX mesh, concrete or abstract, or ``None`` to infer it
+            from ``a``.
         matrix_specs: Explicit matrix ``PartitionSpec``, or ``None`` to infer
             it from ``a``.
         in_specs: Alias for ``matrix_specs``.

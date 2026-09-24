@@ -14,23 +14,22 @@ from functools import lru_cache, partial
 from typing import List, Tuple
 
 import jax
+import numpy as np
 import jax.numpy as jnp
 from jax import Array
-from jax.sharding import Mesh, PartitionSpec as P
+from jax.sharding import AbstractMesh, Mesh, PartitionSpec as P
 
 from ._cusolvermp_layout import (
     _pad_local_2d,
     _unpad_local_2d,
-    cusolvermp_grid_mapping_attr,
     infer_mesh_and_matrix_specs,
     use_abstract_mesh_decorator,
-    process_rank_map_from_mesh,
-    standard_grid_rank_map_attr,
+    partition_slots_from_mesh,
     status_specs,
     validate_2d_matrix_specs,
 )
 from ._cusolvermp_status import _CUSOLVERMP_GESVD_STATUS_SIZE
-from ._layout_types import MatrixPadding2D, ProcessGrid, ProcessRankMap, TileShape
+from ._layout_types import MatrixPadding2D, ProcessGrid, TileShape
 from ._layout_types import calculate_2d_padding
 from ._layout_types import validate_nonempty_block_cyclic_ownership
 from ._setup import ensure_init_jaxmg_backend
@@ -39,7 +38,7 @@ from ._setup import ensure_init_jaxmg_backend
 def gesvd(
     a: Array,
     T_A: int,
-    mesh: Mesh | None = None,
+    mesh: Mesh | AbstractMesh | None = None,
     matrix_specs: P | Tuple[P] | List[P] | None = None,
     *,
     in_specs: P | Tuple[P] | List[P] | None = None,
@@ -71,8 +70,8 @@ def gesvd(
             two-axis device mesh.
         T_A (int): Square cuSOLVERMp tile width. GESVD supports rectangular
             matrices but requires equal row and column tile dimensions.
-        mesh (Mesh, optional): JAX mesh used by ``jax.shard_map``. If omitted,
-            inferred from ``a.sharding.mesh``.
+        mesh (Mesh or AbstractMesh, optional): JAX mesh used by ``jax.shard_map``.
+            If omitted, inferred from ``a.sharding.mesh``.
         matrix_specs (PartitionSpec or tuple/list[PartitionSpec], optional):
             Rank-2 matrix sharding. If omitted, inferred from
             ``a.sharding.spec``.
@@ -138,7 +137,7 @@ def gesvd(
         in_specs=in_specs,
     )
     row_axis, col_axis, grid = validate_2d_matrix_specs(mesh, matrix_specs)
-    rank_map = process_rank_map_from_mesh(
+    partition_slots = partition_slots_from_mesh(
         mesh,
         row_axis=row_axis,
         col_axis=col_axis,
@@ -176,8 +175,7 @@ def gesvd(
         matrix_specs,
         native_status_specs,
         grid,
-        rank_map,
-        rank_map.cusolvermp_grid_mapping,
+        partition_slots,
         a_padding,
         u_padding,
         vh_padding,
@@ -213,7 +211,7 @@ def gesvd(
 def gesvd_shardmap_ctx(
     a: Array,
     T_A: int,
-    mesh: Mesh | None = None,
+    mesh: Mesh | AbstractMesh | None = None,
     matrix_specs: P | Tuple[P] | List[P] | None = None,
     *,
     in_specs: P | Tuple[P] | List[P] | None = None,
@@ -241,8 +239,8 @@ def gesvd_shardmap_ctx(
         a (Array): A rank-2 real or complex matrix sharded over a one- or
             two-axis device mesh.
         T_A (int): Square cuSOLVERMp tile width.
-        mesh (Mesh, optional): JAX mesh used by ``jax.shard_map``. If omitted,
-            inferred from ``a.sharding.mesh``.
+        mesh (Mesh or AbstractMesh, optional): JAX mesh used by ``jax.shard_map``.
+            If omitted, inferred from ``a.sharding.mesh``.
         matrix_specs (PartitionSpec or tuple/list[PartitionSpec], optional):
             Rank-2 matrix sharding. If omitted, inferred from
             ``a.sharding.spec``.
@@ -286,7 +284,7 @@ def gesvd_shardmap_ctx(
         in_specs=in_specs,
     )
     row_axis, col_axis, grid = validate_2d_matrix_specs(mesh, matrix_specs)
-    rank_map = process_rank_map_from_mesh(
+    partition_slots = partition_slots_from_mesh(
         mesh,
         row_axis=row_axis,
         col_axis=col_axis,
@@ -332,8 +330,7 @@ def gesvd_shardmap_ctx(
         matrix_specs,
         native_status_specs,
         grid,
-        rank_map,
-        rank_map.cusolvermp_grid_mapping,
+        partition_slots,
         a_padding,
         u_padding,
         vh_padding,
@@ -428,7 +425,9 @@ def _prepare_gesvd_matrix_layout(
     return padding
 
 
-def _make_local_pad_fn(mesh: Mesh, matrix_specs: P, padding: MatrixPadding2D):
+def _make_local_pad_fn(
+    mesh: Mesh | AbstractMesh, matrix_specs: P, padding: MatrixPadding2D
+):
     """Build the shard-local bottom/right padding transform for A."""
     if not padding.needs_padding:
         return lambda block: block
@@ -446,7 +445,7 @@ def _make_local_pad_fn(mesh: Mesh, matrix_specs: P, padding: MatrixPadding2D):
 
 
 def _make_local_unpad_fn(
-    mesh: Mesh,
+    mesh: Mesh | AbstractMesh,
     matrix_specs: P,
     padding: MatrixPadding2D,
 ):
@@ -466,12 +465,11 @@ def _make_local_unpad_fn(
 
 @lru_cache(maxsize=None)
 def _gesvd_pipeline(
-    mesh: Mesh,
+    mesh: Mesh | AbstractMesh,
     matrix_specs: P,
     native_status_specs: P,
     grid: ProcessGrid,
-    rank_map: ProcessRankMap,
-    grid_mapping: int,
+    partition_slots: tuple[int, ...],
     a_padding: MatrixPadding2D,
     u_padding: MatrixPadding2D | None,
     vh_padding: MatrixPadding2D | None,
@@ -492,19 +490,7 @@ def _gesvd_pipeline(
     """
     process_rows = grid.process_rows
     process_cols = grid.process_cols
-    rank_array = standard_grid_rank_map_attr(
-        rank_map,
-        process_rows=process_rows,
-        process_cols=process_cols,
-        caller="cusolvermp_gesvd",
-    )
-    grid_mapping = cusolvermp_grid_mapping_attr(
-        rank_map,
-        grid_mapping,
-        process_rows=process_rows,
-        process_cols=process_cols,
-        caller="cusolvermp_gesvd",
-    )
+    slots_attr = np.asarray(partition_slots, dtype=np.int64)
     pad_a = _make_local_pad_fn(mesh, matrix_specs, a_padding)
     unpad_u = (
         _make_local_unpad_fn(mesh, matrix_specs, u_padding)
@@ -583,8 +569,7 @@ def _gesvd_pipeline(
             ),
             process_rows=process_rows,
             process_cols=process_cols,
-            grid_mapping=grid_mapping,
-            rank_map=rank_array,
+            partition_slots=slots_attr,
             m=int(m),
             n=int(n),
             tile_size=int(tile_size),
@@ -626,12 +611,11 @@ def _gesvd_pipeline(
 
 @lru_cache(maxsize=None)
 def _gesvd_compiled(
-    mesh: Mesh,
+    mesh: Mesh | AbstractMesh,
     matrix_specs: P,
     native_status_specs: P,
     grid: ProcessGrid,
-    rank_map: ProcessRankMap,
-    grid_mapping: int,
+    partition_slots: tuple[int, ...],
     a_padding: MatrixPadding2D,
     u_padding: MatrixPadding2D | None,
     vh_padding: MatrixPadding2D | None,
@@ -651,8 +635,7 @@ def _gesvd_compiled(
         matrix_specs,
         native_status_specs,
         grid,
-        rank_map,
-        grid_mapping,
+        partition_slots,
         a_padding,
         u_padding,
         vh_padding,
