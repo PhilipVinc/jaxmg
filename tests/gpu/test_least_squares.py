@@ -23,6 +23,15 @@ def test_least_squares_vector_input():
     run_gpu_test(GPU_TEST, 2, "vector", "float32")
 
 
+@pytest.mark.parametrize(
+    "case_name", ("matrix_replicated", "matrix_2d_sharded", "vector_replicated")
+)
+@pytest.mark.multi_gpu
+def test_least_squares_rhs_placement_modes(case_name):
+    """Preserve supported user-facing solve-input shardings."""
+    run_gpu_test(GPU_TEST, 2, case_name, "float32")
+
+
 @pytest.mark.multi_gpu
 def test_least_squares_shardmap_ctx():
     """Run the least-squares context interface inside an external JIT."""

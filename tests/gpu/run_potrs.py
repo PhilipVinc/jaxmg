@@ -116,7 +116,12 @@ def run_case() -> None:
     else:
         raise ValueError(f"unknown RHS placement mode {case.rhs_mode!r}")
     b_dev = jax.device_put(b, NamedSharding(mesh, rhs_specs))
-    expected_rhs_sharding = b_dev.sharding
+    if case.axis_types == "explicit" or single_axis:
+        output_specs = rhs_specs
+    else:
+        row_axis = matrix_specs._partitions[0]
+        output_specs = P(row_axis) if b.ndim == 1 else P(row_axis, None)
+    expected_output_sharding = NamedSharding(mesh, output_specs)
 
     if interface == "invalid_order":
         # Swap the first two devices of the mesh: a device order that is
@@ -234,8 +239,7 @@ def run_case() -> None:
         assert np.all(
             status_words[39::_CUSOLVERMP_POTRS_STATUS_SIZE] == expected_mapping
         ), status_words
-    if single_axis:
-        assert out.sharding.is_equivalent_to(expected_rhs_sharding, out.ndim)
+    assert out.sharding.is_equivalent_to(expected_output_sharding, out.ndim)
 
     out_host = global_array_to_numpy(out)
     residual = np.linalg.norm(a_host @ out_host - b_host) / np.linalg.norm(b_host)
