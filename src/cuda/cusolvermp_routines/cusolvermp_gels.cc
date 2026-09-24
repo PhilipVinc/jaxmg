@@ -57,12 +57,8 @@ absl::Status RunCusolverMpDistributedGels(
       LocalNumroc(n, tile_size, process_col, process_cols);
   const int64_t local_rows_b =
       LocalNumroc(m, tile_size, process_row, process_rows);
-  // Describe the full padded RHS capacity so every process column has valid
-  // descriptor storage even when the solved submatrix has only one column.
-  const int64_t global_physical_cols_b =
-      local_physical_cols_b * process_cols;
-  const int64_t local_cols_b = LocalNumroc(
-      global_physical_cols_b, tile_size, process_col, process_cols);
+  const int64_t local_cols_b =
+      LocalNumroc(nrhs, tile_size, process_col, process_cols);
   (*status_words)[20] = static_cast<int32_t>(local_rows_a);
   (*status_words)[21] = static_cast<int32_t>(local_cols_a);
   (*status_words)[22] = static_cast<int32_t>(local_rows_b);
@@ -91,9 +87,9 @@ absl::Status RunCusolverMpDistributedGels(
   (*status_words)[10] = 1;
 
   solver_status = api.create_matrix_desc(
-      &desc_b, grid, SolverTraits<DataType>::cuda_data_type, m,
-      global_physical_cols_b, tile_size, tile_size, /*RSRC_B=*/0,
-      /*CSRC_B=*/0, local_physical_rows_b);
+      &desc_b, grid, SolverTraits<DataType>::cuda_data_type, m, nrhs,
+      tile_size, tile_size, /*RSRC_B=*/0, /*CSRC_B=*/0,
+      local_physical_rows_b);
   if (solver_status != CUSOLVER_STATUS_SUCCESS || desc_b == nullptr) {
     (*status_words)[0] = kCreateMatrixDescFailed;
     (*status_words)[11] = static_cast<int32_t>(solver_status);

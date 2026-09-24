@@ -10,6 +10,8 @@ $$
 
 The solve input $B$ may be a vector or a matrix containing multiple columns.
 The returned solution has shape `(N,)` or `(N, K)`, respectively.
+Each process-grid column must own at least one block-cyclic tile of $B$; a
+vector input therefore requires a process grid with one column.
 
 Use `least_squares` for a direct solve. Use `least_squares_shardmap_ctx` when
 the solve is part of a larger caller-owned `jax.jit`. Since cuSOLVERMp

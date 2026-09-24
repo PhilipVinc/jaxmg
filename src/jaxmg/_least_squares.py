@@ -32,7 +32,12 @@ from ._cusolvermp_layout import (
     use_abstract_mesh_decorator,
 )
 from ._cusolvermp_status import _CUSOLVERMP_LEAST_SQUARES_STATUS_SIZE
-from ._layout_types import MatrixPadding2D, ProcessGrid, ProcessRankMap
+from ._layout_types import (
+    MatrixPadding2D,
+    ProcessGrid,
+    ProcessRankMap,
+    validate_nonempty_block_cyclic_ownership,
+)
 from ._setup import ensure_init_jaxmg_backend
 
 
@@ -53,7 +58,8 @@ def least_squares(
     The current implementation supports overdetermined or square systems with
     ``M >= N``. For ``A`` of shape ``(M, N)`` and ``B`` of shape ``(M, K)``,
     the returned solution has shape ``(N, K)``. A rank-1 ``B`` is accepted and
-    produces a rank-1 solution.
+    produces a rank-1 solution. Every process-grid column must own at least one
+    block-cyclic tile of ``B``.
 
     Args:
         a (Array): Rank-2 input matrix sharded over a one- or two-axis device
@@ -249,7 +255,9 @@ def _prepare_least_squares_call(
         caller=caller,
     )
     rhs_specs = infer_rhs_specs(b, matrix_specs=layout.matrix_specs)
-    solution_row_partition = rhs_specs._partitions[0]
+    solution_row_partition = (
+        rhs_specs._partitions[0] if rhs_specs._partitions else None
+    )
     solution_row_axes = (
         (solution_row_partition,)
         if isinstance(solution_row_partition, str)
@@ -266,6 +274,13 @@ def _prepare_least_squares_call(
         )
     m = int(a.shape[0])
     nrhs = int(b.shape[1])
+    validate_nonempty_block_cyclic_ownership(
+        logical_rows=m,
+        logical_cols=nrhs,
+        grid=layout.grid,
+        tile_shape=layout.tile_shape,
+        caller=f"{caller}(B)",
+    )
     b_distribution_cols = rhs_distribution_columns(
         nrhs, process_cols=layout.grid.process_cols, pad=pad
     )

@@ -14,7 +14,7 @@ from jaxmg import least_squares_shardmap_ctx
 
 
 T_A = 128
-PROCESS_COLS = 2
+PROCESS_COLS = 1
 TILES_PER_GRID_AXIS = 2
 DTYPE = jnp.float64
 
@@ -42,8 +42,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.process_id is None:
         parser.error("--process-id or JAXMG_PROCESS_ID is required")
-    if args.num_processes < PROCESS_COLS or args.num_processes % PROCESS_COLS:
-        parser.error("this example requires an even number of Python processes")
+    if args.num_processes < 1:
+        parser.error("this example requires at least one Python process")
 
     process_rows = args.num_processes // PROCESS_COLS
     n = T_A * TILES_PER_GRID_AXIS * math.lcm(process_rows, PROCESS_COLS)
@@ -57,7 +57,7 @@ def main() -> None:
         local_device_ids=[args.local_device_id],
     )
 
-    # Initialize the (num_processes / 2) x 2 GPU process mesh.
+    # Initialize the num_processes x 1 GPU process mesh.
     mesh = jax.make_mesh((process_rows, PROCESS_COLS), ("pr", "pc"))
     jax.set_mesh(mesh)
     matrix_specs = P("pr", "pc")

@@ -130,7 +130,7 @@ def test_least_squares_rejects_incompatible_solution_sharding(monkeypatch):
         )
 
 
-def test_least_squares_accepts_narrow_rhs_on_column_grid(monkeypatch):
+def test_least_squares_rejects_empty_rhs_process_column(monkeypatch):
     class FakeMesh:
         shape = {"pc": 2}
 
@@ -149,17 +149,17 @@ def test_least_squares_accepts_narrow_rhs_on_column_grid(monkeypatch):
         "infer_rhs_specs",
         lambda *args, **kwargs: P(None, None),
     )
-    prepared = least_squares_module._prepare_least_squares_call(
-        jnp.ones((192, 96)),
-        jnp.ones((192, 3)),
-        64,
-        None,
-        None,
-        in_specs=None,
-        pad=True,
-        caller="least_squares",
-    )
-    assert prepared[-1] == 4
+    with pytest.raises(ValueError, match=r"least_squares\(B\).*own at least one"):
+        least_squares_module._prepare_least_squares_call(
+            jnp.ones((192, 96)),
+            jnp.ones((192, 3)),
+            64,
+            None,
+            None,
+            in_specs=None,
+            pad=True,
+            caller="least_squares",
+        )
 
 
 @pytest.mark.parametrize(

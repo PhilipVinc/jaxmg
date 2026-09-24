@@ -6,7 +6,7 @@ distributed QR factorization.
 
 ## Common setup
 
-This example uses four Python processes and a $2\times2$ process grid. The
+This example uses four Python processes and a $4\times1$ process grid. The
 dimensions are chosen so the local matrix shards and the returned solution are
 evenly divisible by the process grid and tile size.
 
@@ -21,7 +21,7 @@ from jax.sharding import NamedSharding, PartitionSpec as P
 from jaxmg import least_squares
 
 
-mesh = jax.make_mesh((2, 2), ("pr", "pc"))
+mesh = jax.make_mesh((4, 1), ("pr", "pc"))
 jax.set_mesh(mesh)
 matrix_specs = P("pr", "pc")
 matrix_sharding = NamedSharding(mesh, matrix_specs)
@@ -67,6 +67,8 @@ if jax.process_index() == 0:
 ```
 
 A matrix solve input of shape `(M, K)` returns a solution of shape `(N, K)`.
+Each process-grid column must own at least one block-cyclic tile of the solve
+input, so a vector solve input requires a process grid with one column.
 
 !!! Warning
 

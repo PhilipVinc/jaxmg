@@ -54,9 +54,6 @@ def run_case() -> None:
     elif case_name == "column_grid":
         process_rows, process_cols = 1, 2
         m, n, tile_size, nrhs = 192, 96, 64, 65
-    elif case_name == "column_grid_vector":
-        process_rows, process_cols = 1, 2
-        m, n, tile_size, nrhs = 192, 128, 64, 1
     elif case_name == "square_aligned":
         process_rows, process_cols = 1, 1
         m, n, tile_size, nrhs = 128, 128, 64, 64
@@ -95,7 +92,7 @@ def run_case() -> None:
 
     a = jax.device_put(jnp.asarray(a_host), NamedSharding(mesh, matrix_specs))
     b = jax.device_put(jnp.asarray(b_host), NamedSharding(mesh, P("pr", None)))
-    if case_name in ("vector", "column_grid_vector"):
+    if case_name == "vector":
         b = b[:, 0]
         expected = expected[:, 0]
 
