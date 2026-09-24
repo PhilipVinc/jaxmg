@@ -26,6 +26,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
+#include <optional>
 #include <vector>
 
 #include "absl/strings/str_join.h"
@@ -105,9 +106,14 @@ absl::StatusOr<ResolvedProcessGrid> ResolveProcessGrid(
         caller));
   }
   const DeviceAssignment& assignment = *collective_params->device_assn;
-  const int64_t computation_count = assignment.computation_count();
-  const int64_t num_logical_devices =
-      assignment.replica_count() * computation_count;
+  // JAXMg runs under jax.jit's SPMD partitioner: one replica, and one
+  // computation (partition) per device.
+  if (assignment.replica_count() != 1) {
+    return absl::InvalidArgumentError(absl::StrFormat(
+        "%s expects a single replica, got %d", caller,
+        assignment.replica_count()));
+  }
+  const int64_t num_logical_devices = assignment.computation_count();
   const int64_t num_ranks = process_rows * process_cols;
   if (process_rows <= 0 || process_cols <= 0 ||
       partition_slots.size() != static_cast<size_t>(num_ranks) ||
@@ -119,24 +125,22 @@ absl::StatusOr<ResolvedProcessGrid> ResolveProcessGrid(
         process_cols));
   }
 
-  // Communicator ranks follow the sorted global device ids of the clique
-  // borrowed from XLA (see AllAssignedGlobalDeviceGroup).
-  const std::vector<GlobalDeviceId> ranked_devices =
-      AllAssignedGlobalDeviceGroup(*collective_params);
+  // The communicator ranks are those of the clique borrowed from XLA.
+  absl::StatusOr<GpuCliqueKey> clique_key =
+      AllAssignedDevicesP2PCliqueKey(*collective_params);
+  if (!clique_key.ok()) {
+    return clique_key.status();
+  }
 
   ResolvedProcessGrid resolved;
   resolved.rank_map.assign(num_ranks, -1);
   for (int64_t logical_id = 0; logical_id < num_logical_devices; ++logical_id) {
-    // Replica-major flattened logical id, as XLA's `partition-id` and
-    // `replica-id` (and hence `jax.lax.axis_index`) number the devices.
-    const GlobalDeviceId device(assignment(logical_id / computation_count,
-                                           logical_id % computation_count));
-    const auto it =
-        std::lower_bound(ranked_devices.begin(), ranked_devices.end(), device,
-                         [](GlobalDeviceId lhs, GlobalDeviceId rhs) {
-                           return lhs.value() < rhs.value();
-                         });
-    if (it == ranked_devices.end() || it->value() != device.value()) {
+    // Partition `logical_id` runs on the device XLA assigns to it, which is
+    // how XLA's `partition-id` (and hence `jax.lax.axis_index`) number the
+    // devices.
+    const GlobalDeviceId device(assignment(0, logical_id));
+    const std::optional<RankId> rank = clique_key->rank(device);
+    if (!rank.has_value()) {
       return absl::InternalError(absl::StrFormat(
           "%s could not find device %d in the communicator clique", caller,
           device.value()));
@@ -147,7 +151,7 @@ absl::StatusOr<ResolvedProcessGrid> ResolveProcessGrid(
           absl::StrFormat("%s partition_slots must be a permutation of [0, %d)",
                           caller, num_ranks));
     }
-    resolved.rank_map[slot] = it - ranked_devices.begin();
+    resolved.rank_map[slot] = rank->value();
   }
 
   for (const cusolverMpGridMapping_t grid_mapping :

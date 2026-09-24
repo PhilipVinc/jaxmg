@@ -17,7 +17,7 @@ import jax
 import numpy as np
 import jax.numpy as jnp
 from jax import Array
-from jax.sharding import Mesh, PartitionSpec as P
+from jax.sharding import AbstractMesh, Mesh, PartitionSpec as P
 
 from ._cusolvermp_layout import (
     _pad_local_2d,
@@ -38,7 +38,7 @@ from ._setup import ensure_init_jaxmg_backend
 def gesvd(
     a: Array,
     T_A: int,
-    mesh: Mesh | None = None,
+    mesh: Mesh | AbstractMesh | None = None,
     matrix_specs: P | Tuple[P] | List[P] | None = None,
     *,
     in_specs: P | Tuple[P] | List[P] | None = None,
@@ -70,11 +70,12 @@ def gesvd(
             two-axis device mesh.
         T_A (int): Square cuSOLVERMp tile width. GESVD supports rectangular
             matrices but requires equal row and column tile dimensions.
-        mesh (Mesh, optional): JAX mesh used by ``jax.shard_map``. If omitted,
-            inferred from ``a.sharding.mesh``.
+        mesh (Mesh or AbstractMesh, optional): JAX mesh used by ``jax.shard_map``.
+            If omitted, read off the sharding of ``a`` (its type inside
+            ``jax.jit``), or taken from the context mesh.
         matrix_specs (PartitionSpec or tuple/list[PartitionSpec], optional):
-            Rank-2 matrix sharding. If omitted, inferred from
-            ``a.sharding.spec``.
+            Rank-2 matrix sharding. If omitted, read off the sharding of
+            ``a``, defaulting to the mesh axes in order.
         in_specs: Backwards-compatible alias for ``matrix_specs``.
         compute_u (bool, optional): Whether to compute and return left singular
             vectors. Default is True. This must be a Python ``bool`` fixed
@@ -211,7 +212,7 @@ def gesvd(
 def gesvd_shardmap_ctx(
     a: Array,
     T_A: int,
-    mesh: Mesh | None = None,
+    mesh: Mesh | AbstractMesh | None = None,
     matrix_specs: P | Tuple[P] | List[P] | None = None,
     *,
     in_specs: P | Tuple[P] | List[P] | None = None,
@@ -239,11 +240,12 @@ def gesvd_shardmap_ctx(
         a (Array): A rank-2 real or complex matrix sharded over a one- or
             two-axis device mesh.
         T_A (int): Square cuSOLVERMp tile width.
-        mesh (Mesh, optional): JAX mesh used by ``jax.shard_map``. If omitted,
-            inferred from ``a.sharding.mesh``.
+        mesh (Mesh or AbstractMesh, optional): JAX mesh used by ``jax.shard_map``.
+            If omitted, read off the sharding of ``a`` (its type inside
+            ``jax.jit``), or taken from the context mesh.
         matrix_specs (PartitionSpec or tuple/list[PartitionSpec], optional):
-            Rank-2 matrix sharding. If omitted, inferred from
-            ``a.sharding.spec``.
+            Rank-2 matrix sharding. If omitted, read off the sharding of
+            ``a``, defaulting to the mesh axes in order.
         in_specs: Backwards-compatible alias for ``matrix_specs``.
         compute_u (bool, optional): Whether to compute left singular vectors.
         compute_vh (bool, optional): Whether to compute right singular vectors
@@ -425,7 +427,9 @@ def _prepare_gesvd_matrix_layout(
     return padding
 
 
-def _make_local_pad_fn(mesh: Mesh, matrix_specs: P, padding: MatrixPadding2D):
+def _make_local_pad_fn(
+    mesh: Mesh | AbstractMesh, matrix_specs: P, padding: MatrixPadding2D
+):
     """Build the shard-local bottom/right padding transform for A."""
     if not padding.needs_padding:
         return lambda block: block
@@ -443,7 +447,7 @@ def _make_local_pad_fn(mesh: Mesh, matrix_specs: P, padding: MatrixPadding2D):
 
 
 def _make_local_unpad_fn(
-    mesh: Mesh,
+    mesh: Mesh | AbstractMesh,
     matrix_specs: P,
     padding: MatrixPadding2D,
 ):
@@ -463,7 +467,7 @@ def _make_local_unpad_fn(
 
 @lru_cache(maxsize=None)
 def _gesvd_pipeline(
-    mesh: Mesh,
+    mesh: Mesh | AbstractMesh,
     matrix_specs: P,
     native_status_specs: P,
     grid: ProcessGrid,
@@ -609,7 +613,7 @@ def _gesvd_pipeline(
 
 @lru_cache(maxsize=None)
 def _gesvd_compiled(
-    mesh: Mesh,
+    mesh: Mesh | AbstractMesh,
     matrix_specs: P,
     native_status_specs: P,
     grid: ProcessGrid,

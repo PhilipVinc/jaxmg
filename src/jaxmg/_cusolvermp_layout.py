@@ -74,7 +74,7 @@ def normalize_matrix_specs(
     return specs
 
 
-def mesh_axis_size(mesh: Mesh, axis_name: str) -> int:
+def mesh_axis_size(mesh: Mesh | AbstractMesh, axis_name: str) -> int:
     """Return the number of devices along a named JAX mesh axis.
 
     Args:
@@ -93,7 +93,7 @@ def mesh_axis_size(mesh: Mesh, axis_name: str) -> int:
         raise ValueError(f"mesh does not contain axis {axis_name!r}.") from exc
 
 
-def use_abstract_mesh_decorator(mesh: Mesh):
+def use_abstract_mesh_decorator(mesh: Mesh | AbstractMesh):
     """The decorated function is called within the context of ``use_abstract_mesh``.
 
     Needed because ``jax.shard_map`` rejects a mesh that is not the context mesh,
@@ -112,7 +112,7 @@ def use_abstract_mesh_decorator(mesh: Mesh):
 
 
 def validate_2d_matrix_specs(
-    mesh: Mesh,
+    mesh: Mesh | AbstractMesh,
     matrix_specs: P,
 ) -> tuple[str | None, str | None, ProcessGrid]:
     """Validate and describe a two-dimensional matrix sharding.
@@ -220,7 +220,7 @@ def rhs_distribution_columns(nrhs: int, *, process_cols: int, pad: bool) -> int:
 def _place_for_matrix_axis_mode(
     value: Array,
     *,
-    mesh: Mesh,
+    mesh: Mesh | AbstractMesh,
     matrix_specs: P,
     target_specs: P,
 ) -> Array:
@@ -269,7 +269,7 @@ def _place_for_matrix_axis_mode(
 def place_rhs_for_native_work(
     rhs: Array,
     *,
-    mesh: Mesh,
+    mesh: Mesh | AbstractMesh,
     matrix_specs: P,
 ) -> Array:
     """Place an RHS in the matrix's native work sharding.
@@ -313,9 +313,14 @@ def infer_rhs_specs(rhs: Array, *, matrix_specs: P) -> P:
     ``NamedSharding``.
     """
     sharding = getattr(rhs, "sharding", None)
-    if not isinstance(sharding, NamedSharding):
-        sharding = getattr(jax.typeof(rhs), "sharding", None)
     if isinstance(sharding, NamedSharding):
+        return sharding.spec
+    # Under jit, the type of the RHS only carries its sharding along Explicit
+    # mesh axes; with Auto axes it reads as replicated, which it need not be.
+    sharding = getattr(jax.typeof(rhs), "sharding", None)
+    if isinstance(sharding, NamedSharding) and all(
+        axis_type == AxisType.Explicit for axis_type in sharding.mesh.axis_types
+    ):
         return sharding.spec
     row_axis, _ = matrix_specs._partitions
     return P(row_axis, None)
@@ -325,7 +330,7 @@ def restore_rhs_from_native_work(
     rhs: Array,
     *,
     rhs_specs: P,
-    mesh: Mesh,
+    mesh: Mesh | AbstractMesh,
     matrix_specs: P,
 ) -> Array:
     """Restore a solved RHS to its user-facing sharding before shape slicing.

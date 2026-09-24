@@ -162,16 +162,15 @@ absl::Status ValidateStandardRankMapForGridMapping(
 struct ResolvedProcessGrid {
   // Communicator rank of every row-major process-grid slot.
   std::vector<int64_t> rank_map;
-  int64_t grid_mapping;
+  int64_t grid_mapping = 0;
 };
 
 // Places the communicator ranks on the process grid at run time, from XLA's
 // device assignment, the way XLA resolves the `partition-id` of a device.
 // `partition_slots[p]` is the row-major process-grid slot of the shard computed
-// by logical device (partition) `p`, which Python derives from the abstract JAX
-// mesh as `jax.lax.axis_index` does. The device of partition `p` is
-// `device_assn(p)`, and its communicator rank is its position among the sorted
-// global device ids of the borrowed clique.
+// by partition `p`, which Python derives from the abstract JAX mesh as
+// `jax.lax.axis_index` does. Partition `p` runs on the device XLA assigns to it,
+// whose communicator rank is its rank in the clique borrowed from XLA.
 absl::StatusOr<ResolvedProcessGrid> ResolveProcessGrid(
     const char* caller, const CollectiveParams* collective_params,
     absl::Span<const int64_t> partition_slots, int64_t process_rows,

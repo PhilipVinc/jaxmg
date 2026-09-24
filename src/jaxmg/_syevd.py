@@ -17,7 +17,7 @@ import jax
 import numpy as np
 import jax.numpy as jnp
 from jax import Array
-from jax.sharding import Mesh, PartitionSpec as P
+from jax.sharding import AbstractMesh, Mesh, PartitionSpec as P
 
 from ._cusolvermp_layout import (
     _pad_local_2d,
@@ -38,7 +38,7 @@ from ._setup import ensure_init_jaxmg_backend
 def syevd(
     a: Array,
     T_A: int,
-    mesh: Mesh | None = None,
+    mesh: Mesh | AbstractMesh | None = None,
     matrix_specs: P | Tuple[P] | List[P] | None = None,
     *,
     in_specs: P | Tuple[P] | List[P] | None = None,
@@ -70,11 +70,12 @@ def syevd(
             ``P(<row_axis>, <col_axis>)``.
         T_A (int): Square tile width used by cuSOLVERMp. Each local shard
             dimension must be a multiple of ``T_A`` after padding.
-        mesh (Mesh, optional): JAX mesh used for ``jax.shard_map``. If omitted,
-            inferred from ``a.sharding.mesh``.
+        mesh (Mesh or AbstractMesh, optional): JAX mesh used for ``jax.shard_map``.
+            If omitted, read off the sharding of ``a`` (its type inside
+            ``jax.jit``), or taken from the context mesh.
         matrix_specs (PartitionSpec or tuple/list[PartitionSpec], optional):
-            PartitionSpec describing the matrix sharding. If omitted, inferred
-            from ``a.sharding.spec``.
+            PartitionSpec describing the matrix sharding. If omitted, read
+            off the sharding of ``a``, defaulting to the mesh axes in order.
         in_specs: Backwards-compatible alias for ``matrix_specs``.
         return_eigenvectors (bool, optional): If True (default), compute and
             return eigenvectors as well as eigenvalues. If False, return only
@@ -182,7 +183,7 @@ def syevd(
 def syevd_shardmap_ctx(
     a: Array,
     T_A: int,
-    mesh: Mesh | None = None,
+    mesh: Mesh | AbstractMesh | None = None,
     matrix_specs: P | Tuple[P] | List[P] | None = None,
     *,
     in_specs: P | Tuple[P] | List[P] | None = None,
@@ -218,11 +219,12 @@ def syevd_shardmap_ctx(
             ``P(<row_axis>, <col_axis>)``.
         T_A (int): Square tile width used by cuSOLVERMp. Each local shard
             dimension must be a multiple of ``T_A`` after padding.
-        mesh (Mesh, optional): JAX mesh used for ``jax.shard_map``. If omitted,
-            inferred from ``a.sharding.mesh``.
+        mesh (Mesh or AbstractMesh, optional): JAX mesh used for ``jax.shard_map``.
+            If omitted, read off the sharding of ``a`` (its type inside
+            ``jax.jit``), or taken from the context mesh.
         matrix_specs (PartitionSpec or tuple/list[PartitionSpec], optional):
-            PartitionSpec describing the matrix sharding. If omitted, inferred
-            from ``a.sharding.spec``.
+            PartitionSpec describing the matrix sharding. If omitted, read
+            off the sharding of ``a``, defaulting to the mesh axes in order.
         in_specs: Backwards-compatible alias for ``matrix_specs``.
         return_eigenvectors (bool, optional): If True (default), compute and
             return eigenvectors as well as eigenvalues. If False, use the
@@ -370,7 +372,9 @@ def _check_padding_allowed(
         )
 
 
-def _make_local_pad_fn(mesh: Mesh, matrix_specs: P, padding: MatrixPadding2D):
+def _make_local_pad_fn(
+    mesh: Mesh | AbstractMesh, matrix_specs: P, padding: MatrixPadding2D
+):
     """Build the shard-local bottom/right padding transform.
 
     The returned callable has the same sharding contract as the input matrix.
@@ -394,7 +398,7 @@ def _make_local_pad_fn(mesh: Mesh, matrix_specs: P, padding: MatrixPadding2D):
 
 
 def _make_local_unpad_fn(
-    mesh: Mesh,
+    mesh: Mesh | AbstractMesh,
     matrix_specs: P,
     *,
     local_rows: int,
@@ -418,7 +422,7 @@ def _make_local_unpad_fn(
 
 @lru_cache(maxsize=None)
 def _syevd_pipeline(
-    mesh: Mesh,
+    mesh: Mesh | AbstractMesh,
     matrix_specs: P,
     native_status_specs: P,
     grid: ProcessGrid,
@@ -532,7 +536,7 @@ def _syevd_pipeline(
 
 @lru_cache(maxsize=None)
 def _syevd_compiled(
-    mesh: Mesh,
+    mesh: Mesh | AbstractMesh,
     matrix_specs: P,
     native_status_specs: P,
     grid: ProcessGrid,

@@ -105,7 +105,9 @@ Inside `jax.jit` only the abstract mesh is available, which is all JAXMg needs:
 as for `jax.lax.axis_index`, the devices are resolved when the program runs.
 With `Auto` mesh axes the sharding of the matrix is not known inside `jax.jit`,
 so it then defaults to the mesh axes in order, `P("pr", "pc")` above or
-`P("x", None)` for a one-axis mesh.
+`P("x", None)` for a one-axis mesh. If the matrix is actually sharded
+differently, JAX redistributes it to that layout first; pass `matrix_specs`
+to avoid it.
 
 You can inspect the resultant process-rank mapping selected by JAX:
 
@@ -131,7 +133,8 @@ For the row-major $4\times2$ mesh used in this example, rank 0 prints
 
 
 JAXMg reads this mapping from XLA's device assignment when the solver runs,
-and accepts regular row-major and column-major rank mappings. For a
+and accepts regular row-major and column-major rank mappings; other device
+orders make the solver call fail when it runs. For a
 $4\times2$ grid these are
 
 $$

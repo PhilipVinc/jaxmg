@@ -16,7 +16,7 @@ import jax
 import numpy as np
 import jax.numpy as jnp
 from jax import Array
-from jax.sharding import Mesh, PartitionSpec as P
+from jax.sharding import AbstractMesh, Mesh, PartitionSpec as P
 
 from ._cusolvermp_layout import (
     _pad_local_2d,
@@ -42,7 +42,7 @@ def lu_solve(
     a: Array,
     b: Array,
     T_A: int,
-    mesh: Mesh | None = None,
+    mesh: Mesh | AbstractMesh | None = None,
     matrix_specs: P | Tuple[P] | List[P] | None = None,
     *,
     in_specs: P | Tuple[P] | List[P] | None = None,
@@ -71,11 +71,12 @@ def lu_solve(
             ``N x 1`` matrix.
         T_A (int): Square tile width used by cuSOLVERMp. Each local shard
             dimension must be a multiple of ``T_A`` after padding.
-        mesh (Mesh, optional): JAX mesh used for ``jax.shard_map``. If omitted,
-            inferred from ``a.sharding.mesh``.
+        mesh (Mesh or AbstractMesh, optional): JAX mesh used for ``jax.shard_map``.
+            If omitted, read off the sharding of ``a`` (its type inside
+            ``jax.jit``), or taken from the context mesh.
         matrix_specs (PartitionSpec or tuple/list[PartitionSpec], optional):
-            PartitionSpec describing the matrix sharding. If omitted, inferred
-            from ``a.sharding.spec``.
+            PartitionSpec describing the matrix sharding. If omitted, read
+            off the sharding of ``a``, defaulting to the mesh axes in order.
         in_specs: Backwards-compatible alias for ``matrix_specs``.
         return_status (bool, optional): If True return ``(x, status)`` where
             ``status`` is the native per-rank diagnostic vector. If False
@@ -201,7 +202,7 @@ def lu_solve_shardmap_ctx(
     a: Array,
     b: Array,
     T_A: int,
-    mesh: Mesh | None = None,
+    mesh: Mesh | AbstractMesh | None = None,
     matrix_specs: P | Tuple[P] | List[P] | None = None,
     *,
     in_specs: P | Tuple[P] | List[P] | None = None,
@@ -224,11 +225,12 @@ def lu_solve_shardmap_ctx(
         b (Array): 1D or 2D solve input. A vector is treated as an
             ``N x 1`` matrix.
         T_A (int): Square tile width used by cuSOLVERMp.
-        mesh (Mesh, optional): JAX mesh used for ``jax.shard_map``. If omitted,
-            inferred from ``a.sharding.mesh``.
+        mesh (Mesh or AbstractMesh, optional): JAX mesh used for ``jax.shard_map``.
+            If omitted, read off the sharding of ``a`` (its type inside
+            ``jax.jit``), or taken from the context mesh.
         matrix_specs (PartitionSpec or tuple/list[PartitionSpec], optional):
-            PartitionSpec describing the matrix sharding. If omitted, inferred
-            from ``a.sharding.spec``.
+            PartitionSpec describing the matrix sharding. If omitted, read
+            off the sharding of ``a``, defaulting to the mesh axes in order.
         in_specs: Backwards-compatible alias for ``matrix_specs``.
         pad (bool, optional): If True (default) apply per-device padding so
             each local shard length is compatible with ``T_A``; if False the
@@ -350,7 +352,9 @@ def _check_padding_allowed(
         )
 
 
-def _make_local_pad_fn(mesh: Mesh, matrix_specs: P, padding: MatrixPadding2D):
+def _make_local_pad_fn(
+    mesh: Mesh | AbstractMesh, matrix_specs: P, padding: MatrixPadding2D
+):
     """Build the shard-local bottom/right padding transform."""
     if not padding.needs_padding:
         return lambda block: block
@@ -368,7 +372,7 @@ def _make_local_pad_fn(mesh: Mesh, matrix_specs: P, padding: MatrixPadding2D):
 
 
 def _make_local_unpad_fn(
-    mesh: Mesh,
+    mesh: Mesh | AbstractMesh,
     matrix_specs: P,
     *,
     local_rows: int,
@@ -386,7 +390,7 @@ def _make_local_unpad_fn(
 
 @lru_cache(maxsize=None)
 def _lu_solve_pipeline(
-    mesh: Mesh,
+    mesh: Mesh | AbstractMesh,
     matrix_specs: P,
     native_status_specs: P,
     grid: ProcessGrid,
@@ -494,7 +498,7 @@ def _lu_solve_pipeline(
 
 @lru_cache(maxsize=None)
 def _lu_solve_compiled(
-    mesh: Mesh,
+    mesh: Mesh | AbstractMesh,
     matrix_specs: P,
     native_status_specs: P,
     grid: ProcessGrid,

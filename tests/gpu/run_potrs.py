@@ -128,7 +128,8 @@ def run_case() -> None:
         a_bad = jax.device_put(a, NamedSharding(bad_mesh, matrix_specs))
         b_bad = jax.device_put(b, NamedSharding(bad_mesh, rhs_specs))
         try:
-            potrs(a_bad, b_bad, case.tile_size)
+            # The native error surfaces when the result is awaited.
+            jax.block_until_ready(potrs(a_bad, b_bad, case.tile_size))
         except Exception as error:  # noqa: BLE001 - XLA wraps the native error.
             assert "row-major or" in str(error), error
         else:
@@ -224,6 +225,13 @@ def run_case() -> None:
     assert status_words.size % _CUSOLVERMP_POTRS_STATUS_SIZE == 0, status_words
     assert np.all(status_words[::_CUSOLVERMP_POTRS_STATUS_SIZE] == 0), status_words
     assert_close_scaled(out, expected)
+    if interface == "inferred":
+        # The native backend chose the grid mapping from the device assignment:
+        # status word 39 is 1 for row-major and 0 for column-major.
+        expected_mapping = 1 if case.grid_order == "row_major" else 0
+        assert np.all(
+            status_words[39::_CUSOLVERMP_POTRS_STATUS_SIZE] == expected_mapping
+        ), status_words
     if single_axis:
         assert out.sharding.is_equivalent_to(expected_rhs_sharding, out.ndim)
 
