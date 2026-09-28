@@ -330,9 +330,14 @@ def infer_rhs_specs(rhs: Array, *, matrix_specs: P) -> P:
     ``NamedSharding``.
     """
     sharding = getattr(rhs, "sharding", None)
-    if not isinstance(sharding, NamedSharding):
-        sharding = getattr(jax.typeof(rhs), "sharding", None)
     if isinstance(sharding, NamedSharding):
+        return sharding.spec
+    # Under jit, the type of the RHS only carries its sharding along Explicit
+    # mesh axes; with Auto axes it reads as replicated, which it need not be.
+    sharding = getattr(jax.typeof(rhs), "sharding", None)
+    if isinstance(sharding, NamedSharding) and all(
+        axis_type == AxisType.Explicit for axis_type in sharding.mesh.axis_types
+    ):
         return sharding.spec
     row_axis, _ = matrix_specs._partitions
     return P(row_axis, None)

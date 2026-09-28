@@ -48,9 +48,17 @@ from jaxmg._cusolvermp_status import _CUSOLVERMP_LEAST_SQUARES_STATUS_SIZE
 def run_case() -> None:
     """Run one distributed least-squares case and validate its solution."""
     dtype = dtype_from_name(dtype_name)
-    if case_name in ("matrix", "vector"):
+    if case_name in (
+        "matrix",
+        "matrix_replicated",
+        "vector",
+        "vector_replicated",
+    ):
         process_rows, process_cols = 2, 1
         m, n, tile_size, nrhs = 192, 128, 64, 3
+    elif case_name == "matrix_2d_sharded":
+        process_rows, process_cols = 1, 2
+        m, n, tile_size, nrhs = 192, 128, 64, 128
     elif case_name == "column_grid":
         process_rows, process_cols = 1, 2
         m, n, tile_size, nrhs = 192, 96, 64, 65
@@ -63,6 +71,11 @@ def run_case() -> None:
         raise ValueError(
             f"{case_name} requires {process_rows * process_cols} processes"
         )
+    rhs_mode = {
+        "matrix_replicated": "matrix_replicated",
+        "matrix_2d_sharded": "matrix_2d_sharded",
+        "vector_replicated": "vector_replicated",
+    }.get(case_name, "matrix_row_sharded")
     case = SolverCase(
         process_rows=process_rows,
         process_cols=process_cols,
@@ -70,7 +83,7 @@ def run_case() -> None:
         n=m,
         tile_size=tile_size,
         nrhs=nrhs,
-        rhs_mode="matrix_row_sharded",
+        rhs_mode=rhs_mode,
     )
     mesh = make_process_mesh(case)
     matrix_specs = P("pr", "pc")
@@ -90,11 +103,18 @@ def run_case() -> None:
     b_host = b_host.astype(np.dtype(dtype))
     expected = np.linalg.lstsq(a_host, b_host, rcond=None)[0]
 
-    a = jax.device_put(jnp.asarray(a_host), NamedSharding(mesh, matrix_specs))
-    b = jax.device_put(jnp.asarray(b_host), NamedSharding(mesh, P("pr", None)))
-    if case_name == "vector":
-        b = b[:, 0]
+    if case_name in ("vector", "vector_replicated"):
+        b_host = b_host[:, 0]
         expected = expected[:, 0]
+    rhs_specs = {
+        "matrix_replicated": P(None, None),
+        "matrix_2d_sharded": matrix_specs,
+        "vector": P("pr"),
+        "vector_replicated": P(None),
+    }.get(case_name, P("pr", None))
+    a = jax.device_put(jnp.asarray(a_host), NamedSharding(mesh, matrix_specs))
+    b = jax.device_put(jnp.asarray(b_host), NamedSharding(mesh, rhs_specs))
+    expected_output_sharding = b.sharding
 
     if interface == "context":
 
@@ -107,6 +127,9 @@ def run_case() -> None:
         a_work, b_work, out, status = solve(a, b)
         a_work.block_until_ready()
         b_work.block_until_ready()
+        assert b_work.sharding.is_equivalent_to(
+            expected_output_sharding, b_work.ndim
+        )
     else:
         out, status = least_squares(
             a,
@@ -132,6 +155,7 @@ def run_case() -> None:
     np.testing.assert_allclose(
         global_array_to_numpy(out), expected, rtol=tolerance, atol=tolerance
     )
+    assert out.sharding.is_equivalent_to(expected_output_sharding, out.ndim)
 
     emit(
         "GPU_TEST_RESULT",
